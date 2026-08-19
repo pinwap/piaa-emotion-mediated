@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "output"
 
 VARIANTS = {"A", "B", "C"}
-HEADS = {"l": "lasso", "e": "elastic", "m": "mlp"}
+HEADS = {"l": "lasso", "e": "elastic"}
 BACKBONES = ["clip_ft_emo", "clip_ft", "qwen4b", "qwen8b"]
 
 KEY = ["backbone", "head", "variant", "n_train", "mediator",

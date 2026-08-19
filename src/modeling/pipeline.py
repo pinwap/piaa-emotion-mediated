@@ -59,7 +59,7 @@ class _WithPopFeature:
 
 
 class _ResidualHead:
-    """Variant C for a head with no weight vector (the MLP).
+    """Variant C for a head with no weight vector.
 
     Fits the wrapped head on y_u - y_pop and adds y_pop back at predict time,
     so the personal model degrades onto the population model exactly as the
@@ -244,8 +244,7 @@ class Pipeline:
         the validation user group (disjoint from train and test users), never
         on train-group data alone and never on anything a test user touched.
         Stage-1 (mediator) fitting is always ridge, regardless of which
-        Stage-2 head is being tested, so the ridge-vs-mlp comparison isolates
-        the head and doesn't also swap the mediator's own fitting procedure.
+        Stage-2 head is being tested.
 
         seed  run-level seed for multi-seed averaging; seed=0 keeps the
               original RNG draws exactly.
@@ -268,7 +267,7 @@ class Pipeline:
 
         meds = build_shared_mediators(Xg, Eg, self.cfg, fold.index,
                                       want=want, seed=seed,
-                                      val=val_E, yg=yg, val_y=yv, Dg=Dg,
+                                      val=val_E, yg=yg, Dg=Dg,
                                       val_dist=val_dist)
         return Xg, Eg, yg, meds
 
@@ -304,13 +303,9 @@ class Pipeline:
                                      pop_head, kind=kind)
         if variant == "C" and anchor is not None:
             # C is "fit the head on y - y_pop and add the prediction back",
-            # which needs no weight space and so applies to the MLP too.
-            # Running the MLP unanchored here while the ridge next to it is
-            # anchored would make an "anchor C" column compare two different
-            # methods rather than two heads.
+            # which needs no weight space, so it applies to any head.
             return _ResidualHead(make_head(kind, self.cfg, seed=seed), pop_head)
-        # B shrinks toward w_pop, which only exists for a linear head; an MLP
-        # under B therefore trains plain, and the table has to say so.
+        # B shrinks toward w_pop, which only exists for a linear head.
         return make_head(kind, self.cfg, seed=seed)
 
     def select_personal_hyperparam(self, fold, domain: str, feats, med, kind: str,
@@ -328,7 +323,7 @@ class Pipeline:
         head is chosen by their own held-out performance.
 
         med   a fitted Mediator (frozen; transforms X_train/X_eval)
-        kind  "ridge" or "mlp"
+        kind  "ridge", "lasso" or "elastic"
         """
         cfg = self.cfg
         grid = head_grid(kind, cfg)
@@ -358,9 +353,8 @@ class Pipeline:
         means = {c: (np.mean(v) if v else -np.inf) for c, v in scores.items()}
         best = max(means.values())
         tied = [c for c, s in means.items() if s >= best - abs(best) * ALPHA_TIE_RTOL]
-        # same tie-break direction as select_alpha_on_val: strongest penalty,
-        # smallest MLP step (grids are both ascending)
-        return max(tied) if kind in ALPHA_HEADS else min(tied)
+        # same tie-break direction as select_alpha_on_val: strongest penalty
+        return max(tied)
 
     def run_grid(self, mediators: list[str], heads: list[str],
                  n_train: int | None = None, include_population: bool = True,
@@ -372,7 +366,7 @@ class Pipeline:
         include_population      add the no-personalization (GIAA) baseline
         include_gt_upper_bound  add the ceiling that uses true emotion ratings
         seed  run-level seed -- every stochastic point (random/shuffled
-              mediator, MLP head init+split) is tied to this seed. seed=0
+              mediator) is tied to this seed. seed=0
               reproduces the original single-seed behavior exactly (see
               table1.py, which loops seeds and averages).
 
@@ -409,9 +403,7 @@ class Pipeline:
                 Xv, _, yv = self.val_data(fold, dom, feats)
                 pop_models = {}
                 for h in set(heads) | {"ridge"}:
-                    base = 100 + fold.index if h == "mlp" else 0
-                    hseed = base if (h != "mlp" or seed == 0) else base + seed * 1_000_003
-                    pop_models[h] = make_head(h, cfg, seed=hseed).fit(
+                    pop_models[h] = make_head(h, cfg, seed=0).fit(
                         Xg, yg, val=(Xv, yv))
                 pop_ridge = pop_models["ridge"]
 

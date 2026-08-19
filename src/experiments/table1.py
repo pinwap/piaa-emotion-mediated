@@ -9,7 +9,7 @@ Everything is scored on the same users/images so rows compare directly with
 a paired test.
 
 Every row is run under 3 seeds (0,1,2) and averaged per unit before
-summarizing, since random/shuffled mediators and the MLP head are stochastic.
+summarizing, since the random/shuffled mediators are stochastic.
 seed=0 alone reproduces the original single-seed run bit-for-bit.
 
 Writes per_unit.csv (seed-averaged), per_unit_by_seed.csv (raw, one row per
@@ -27,18 +27,18 @@ from src.utils.results_db import record
 
 #: row order (mediator, head)
 ROWS = [
-    ("population", "ridge"), ("population", "mlp"),
-    ("identity", "ridge"), ("identity", "mlp"),
-    ("random", "ridge"), ("random", "mlp"),
-    ("shuffled", "ridge"), ("shuffled", "mlp"),
-    ("pca", "ridge"), ("pca", "mlp"),
-    ("emotion", "ridge"), ("emotion", "mlp"),
+    ("population", "ridge"),
+    ("identity", "ridge"),
+    ("random", "ridge"),
+    ("shuffled", "ridge"),
+    ("pca", "ridge"),
+    ("emotion", "ridge"),
 ]
 
 REFERENCE = ("emotion", "ridge")   # row that Wilcoxon significance is computed against
 
-#: rows involving random/shuffled mediators or an MLP head are stochastic
-#: (random projection, label permutation, MLP weight init + internal split);
+#: rows involving random/shuffled mediators are stochastic
+#: (random projection, label permutation);
 #: we repeat the whole grid under these seeds and average per unit so a
 #: single unlucky draw doesn't set the reported number. seed=0 reproduces
 #: the original single-seed run bit-for-bit (see pipeline.run_grid).
@@ -51,7 +51,7 @@ def _tag(variant: str) -> str:
     return "" if variant in (None, "plain") else f"_{variant}"
 
 
-HEADS = ["ridge", "mlp"]
+HEADS = ["ridge"]
 
 
 def _htag(heads) -> str:
@@ -80,7 +80,7 @@ def run_one_seed(cfg, pipeline, seed: int, variant: str | None = None,
         mediators=mediators,
         heads=heads,
         include_population=True,
-        # the ceiling is a ridge-only row; a heads=mlp run would not produce
+        # the ceiling is a ridge-only row; a partial run would not produce
         # it, and asking for it anyway would write a duplicate of a row the
         # full run already has
         include_gt_upper_bound=("ridge" in heads),

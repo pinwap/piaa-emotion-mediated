@@ -34,7 +34,7 @@ class Config:
     split_seed: int = 42    # per-user split seed (used as seed + user_id)
     min_test: int = 20      # skip a user if fewer eval images remain
 
-    backbone: str = "clip"  #"qwen3-vl-4b", "qwen3-vl-8b"
+    backbone: str = "qwen8b"  #"qwen3-vl-4b", "qwen3-vl-8b"
 
     # ridge head. The grid runs to 1e6, well past the point where a 7- or
     # 512-feature head on <=100 standardized samples is fully shrunk, so the
@@ -60,7 +60,7 @@ class Config:
     #   B      shrink the weights toward w_pop (the pooled training-group
     #          Stage-2 coefficients) instead of toward 0
     #   C      fit the head on the residual y - y_pop
-    stage2_variant: str = "plain"
+    stage2_variant: str = "C"
 
     # Which mediators the variant applies to. The reviewer instruction is to
     # apply it to every mediator, Random and Shuffled included: if only Hybrid
@@ -79,33 +79,7 @@ class Config:
     # different methods.
     stage2_variant_mediators: tuple = ("identity", "pca", "emotion",
                                        "random", "shuffled",
-                                       "emotion_sd", "emotion_hist",
-                                       "emotion_mlp", "emotion_joint")
-
-    # MLP head
-    mlp_hidden: int = 128
-    mlp_alpha: float = 0.0
-    mlp_lr_grid: tuple = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
-    mlp_max_iter: int = 2000           # fixed epoch budget, stated in advance
-    mlp_early_stopping: bool = False   # no internal validation split -- see heads.py
-    mlp_validation_fraction: float = 0.15   # unused while early_stopping=False
-    mlp_n_iter_no_change: int = 20
-    mlp_search_val_frac: float = 0.2   # val fraction when searching lr (personal head only)
-
-    # Stage-1 MLP budget. The personal head trains on ~100 samples, but a
-    # Stage-1 MLP trains on ~4500 images with up to 4096 input features
-    # (Qwen-8B), and 2000 Adam epochs there costs hours per fold while mostly
-    # fitting noise -- a 4096->128->7 map on 4500 samples converges long
-    # before that. These keep the Stage-1 MLP affordable enough to report as
-    # a baseline; they are stated here rather than tuned per run.
-    stage1_mlp_max_iter: int = 300
-    stage1_mlp_lr_grid: tuple = (3e-4, 1e-3, 3e-3)
-
-    # Weight on the score term when Stage-1 is trained jointly
-    # (mediator "emotion_joint"). 0 would make it identical to
-    # emotion_mlp; 1 weights predicting the population score as much as
-    # predicting one emotion.
-    joint_score_weight: float = 1.0
+                                       "emotion_sd", "emotion_hist")
 
     mediator_width: int = 7
 

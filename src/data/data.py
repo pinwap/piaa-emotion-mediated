@@ -119,14 +119,20 @@ class XpassDataset:
     def per_stimulus_hist(df: pd.DataFrame, n_bins: int = 5) -> pd.DataFrame:
         """Per image, the full rating distribution of each emotion.
 
-        Columns are <emotion>_b1..b{n_bins}: the fraction of raters who gave
-        that emotion that rating, so each emotion's bins sum to 1. The emotion
-        scale is the integers 1..n_bins. Same index and order as
-        per_stimulus().
+        Columns are <emotion>_b1..b{n_bins}: the share of raters who gave that
+        emotion that rating, so each emotion's bins sum to 1. The scale is the
+        integers 1..n_bins. Same index and order as per_stimulus().
+
+        Each bin is built as a 0/1 indicator per rating and then averaged over
+        the raters of an image, since the mean of an indicator is the share.
         """
-        out = {f"{c}_b{b}": (df[c].to_numpy(float) == b).astype(float)
-               for c in CORE7 for b in range(1, n_bins + 1)}
-        wide = pd.DataFrame(out, index=df.index)
+        columns = {}
+        for emotion in CORE7:
+            ratings = df[emotion].to_numpy(float)
+            for level in range(1, n_bins + 1):
+                columns[f"{emotion}_b{level}"] = (ratings == level).astype(float)
+
+        wide = pd.DataFrame(columns, index=df.index)
         return wide.groupby(df["stimulus_id"].astype(str)).mean()
 
     def population_emotions(self, d: pd.DataFrame) -> pd.DataFrame:
