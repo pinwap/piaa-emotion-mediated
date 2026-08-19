@@ -79,7 +79,8 @@ class Config:
     # different methods.
     stage2_variant_mediators: tuple = ("identity", "pca", "emotion",
                                        "random", "shuffled",
-                                       "emotion_sd", "emotion_hist")
+                                       "emotion_sd", "emotion_hist",
+                                       "pca35", "random35", "shuffled35")
 
     mediator_width: int = 7
 

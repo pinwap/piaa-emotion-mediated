@@ -147,6 +147,15 @@ def build_shared_mediators(Xg: np.ndarray, Eg: np.ndarray, cfg, fold_index: int,
     R = rng.standard_normal((Xg.shape[1], K)) / np.sqrt(Xg.shape[1])
     perm = rng.permutation(len(Eg))
 
+    # 35-wide controls for emotion_hist: same construction as the 7-wide
+    # ones, drawn unconditionally right after them so the draw order stays
+    # fixed regardless of `want`, and from the same rng so they are
+    # reproducible the same way. Width 35 to match emotion_hist, not
+    # emotion, since these exist to ask "is emotion_hist's edge about its
+    # 35 numbers, or about what they encode?"
+    R35 = rng.standard_normal((Xg.shape[1], 35)) / np.sqrt(Xg.shape[1])
+    perm35 = rng.permutation(len(Eg))
+
     out: dict[str, Mediator] = {}
     if "identity" in want:
         out["identity"] = IdentityMediator()
@@ -176,5 +185,17 @@ def build_shared_mediators(Xg: np.ndarray, Eg: np.ndarray, cfg, fold_index: int,
             out[key] = EmotionMediator(
                 _shared_ridge(Xg, Dg[key], cfg.ridge_alphas,
                               (val_dist or {}).get(key)))
+
+    if "pca35" in want:
+        out["pca35"] = PCAMediator(PCA(n_components=35, random_state=0).fit(Xg))
+    if "random35" in want:
+        out["random35"] = RandomMediator(R35)
+    if "shuffled35" in want:
+        if Dg is None or "emotion_hist" not in Dg:
+            raise ValueError("shuffled35 needs Dg['emotion_hist']")
+        out["shuffled35"] = ShuffledMediator(
+            _shared_ridge(Xg, Dg["emotion_hist"].values[perm35] if hasattr(Dg["emotion_hist"], "values")
+                         else Dg["emotion_hist"][perm35],
+                         cfg.ridge_alphas, (val_dist or {}).get("emotion_hist")))
 
     return out

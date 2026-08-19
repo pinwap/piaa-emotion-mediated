@@ -1,11 +1,6 @@
 """Pipeline -- wires Backbone + Mediator + Head together and runs the v4
 evaluation protocol.
 
-The whole thing is a two-axis grid, Mediator x Head. Every row of Table 1
-is one cell in that grid, so it's written as a single loop rather than a
-separate function per baseline (less duplication, less chance of updating
-one baseline and forgetting another).
-
 Per (fold, domain):
   1. pull train-user images -> features Xg, population-mean emotions Eg
   2. fit every mediator on (Xg, Eg), freeze
@@ -21,8 +16,7 @@ import pandas as pd
 
 from src.data.data import CORE7, DOMAINS, XpassDataset
 from src.data.splits import V4Split, per_user_split, user_rng
-from src.modeling.heads import (ALPHA_HEADS, ALPHA_TIE_RTOL, head_grid,
-                                make_head)
+from src.modeling.heads import (ALPHA_HEADS, ALPHA_TIE_RTOL, head_grid, make_head)
 from src.modeling.mediators import build_shared_mediators
 from src.utils.metrics import evaluate, srocc
 
@@ -250,7 +244,7 @@ class Pipeline:
               original RNG draws exactly.
         """
         want = want or []
-        need_dist = any(k in want for k in ("emotion_sd", "emotion_hist"))
+        need_dist = any(k in want for k in ("emotion_sd", "emotion_hist", "shuffled35"))
 
         if need_dist:
             Xg, Eg, yg, Dg = self.group_data(fold.train_users, domain, feats,
