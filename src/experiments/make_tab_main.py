@@ -33,6 +33,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.data.data import DOMAINS                        # noqa: E402
+from src.experiments.paper_paths import TABLES, ensure   # noqa: E402
 from src.utils.metrics import sem, wilcoxon_paired       # noqa: E402
 
 try:                        # the repo path has Thai characters in it
@@ -48,16 +49,44 @@ BACKBONE, VARIANT, N_TRAIN = "qwen8b", "C", 100
 UNIT = ["fold", "domain", "user_id"]
 
 #: (section heading or None, mediator, head, printed label)
+#:
+#: Only "emotion" has a learned Stage-1, so only it can carry an MLP
+#: extractor and a jointly trained one. Direct has no mediator at all,
+#: Random is a fixed projection and PCA a fixed unsupervised basis -- there
+#: is no extractor there to make nonlinear, so their MLP design is the MLP
+#: predictor and there is no third variant. Padding them out would invent a
+#: distinction the models do not have.
 ROWS = [
     ("No personalization (GIAA)", "population", "ridge", "Population (GIAA)"),
+
     ("No mediator", "identity", "ridge", "Direct"),
+    (None, "identity", "mlp", "Direct"),
+
     ("Content-free mediator", "random", "ridge", "Random"),
+    (None, "random", "mlp", "Random"),
+
     ("Compressed mediator", "pca", "ridge", "PCA"),
-    ("Emotion bottleneck (ours)", "emotion", "ridge",
-     r"Hybrid, ridge $\rightarrow$ ridge"),
-    (None, "emotion_mlp", "mlp", r"Hybrid, MLP $\rightarrow$ MLP sequential"),
-    (None, "emotion_joint", "mlp", r"Hybrid, MLP $\rightarrow$ MLP joint"),
+    (None, "pca", "mlp", "PCA"),
+
+    ("Emotion bottleneck (ours)", "emotion", "ridge", "Hybrid"),
+    (None, "emotion_mlp", "mlp", "Hybrid"),
+    (None, "emotion_joint", "mlp", "Hybrid"),
 ]
+
+#: what the "Stage 2" column prints, per (mediator, head)
+ARROW = chr(92) + 'rightarrow'
+DESIGN = {
+    ("population", "ridge"): "---",
+    ("identity", "ridge"): "Ridge",
+    ("identity", "mlp"): "MLP",
+    ("random", "ridge"): "Ridge",
+    ("random", "mlp"): "MLP",
+    ("pca", "ridge"): "Ridge",
+    ("pca", "mlp"): "MLP",
+    ("emotion", "ridge"): f"Ridge ${ARROW}$ Ridge",
+    ("emotion_mlp", "mlp"): f"MLP ${ARROW}$ MLP (seq.)",
+    ("emotion_joint", "mlp"): f"MLP ${ARROW}$ MLP (joint)",
+}
 REFERENCE = ("emotion", "ridge")     # what the dagger tests against
 
 DOMAIN_COLS = [(d, d.capitalize()) for d in DOMAINS] + [(None, "Average")]
@@ -99,7 +128,7 @@ def _slice(df, med, head):
     return df[(df.mediator == med) & (df["head"] == head)].set_index(UNIT)
 
 
-def build(df: pd.DataFrame) -> tuple[list[dict], dict]:
+def build(df: pd.DataFrame, strict: bool = True) -> tuple[dict, dict, list]:
     ref = _slice(df, *REFERENCE)
     stats, missing = {}, []
     for _, med, head, _ in ROWS:
@@ -121,17 +150,25 @@ def build(df: pd.DataFrame) -> tuple[list[dict], dict]:
             r[("sig", m)] = bool(np.isfinite(p) and p < 0.05)
             r[("p", m)] = p
         stats[(med, head)] = r
-    if missing:
+    if missing and strict:
         raise SystemExit("missing rows in raw_all_final.csv: " + ", ".join(missing))
 
     best = {}
     for dom, _label in DOMAIN_COLS:
         for m in ("srocc", "plcc"):
             best[(dom, m)] = max(v[(dom, m, "mean")] for v in stats.values())
-    return stats, best
+    return stats, best, missing
+
+
+def med_group(med: str) -> str:
+    """The emotion rows are one mediator wearing three designs, so the
+    mediator column names it once and the Stage-2 column carries the rest.
+    """
+    return "emotion" if med.startswith("emotion") else med
 
 
 def render(stats, best, bounds: pd.DataFrame | None) -> str:
+    seen: set[str] = set()
     out = [r"\begin{tabular}{llc cc cc cc cc}", r"\toprule",
            r"\multirow{2}{*}{Mediator} & \multirow{2}{*}{Stage 2} & "
            r"\multirow{2}{*}{eff.\ DoF} &",
@@ -142,13 +179,20 @@ def render(stats, best, bounds: pd.DataFrame | None) -> str:
            r"\midrule"]
 
     for section, med, head, label in ROWS:
+        shown = label if med_group(med) not in seen else ""
+        seen.add(med_group(med))
         if section:
             if med != "population":
                 out.append(r"\addlinespace")
             out.append(rf"\multicolumn{{11}}{{l}}{{\textit{{{section}}}}}\\")
+        stage2 = DESIGN[(med, head)]
+        if (med, head) not in stats:
+            # still running -- keep the row so the layout is final
+            out.append(f"{shown} & {stage2} & \\na & "
+                       + " & ".join([r"\na"] * 2 * len(DOMAIN_COLS)) + r" \\")
+            continue
         r = stats[(med, head)]
         dof = "\\na" if not np.isfinite(r["eff_dof"]) else f"{r['eff_dof']:.1f}"
-        stage2 = {"ridge": "Ridge", "mlp": "MLP"}[head]
         if med == "population":
             stage2, dof = "---", "\\na"
         cells = []
@@ -158,7 +202,7 @@ def render(stats, best, bounds: pd.DataFrame | None) -> str:
                 cells.append(_cell(mean, r[(dom, m, "sem")],
                                    bold=np.isclose(mean, best[(dom, m)]),
                                    dagger=r[("sig", m)]))
-        out.append(f"{label} & {stage2} & {dof} & " + " & ".join(cells) + r" \\")
+        out.append(f"{shown} & {stage2} & {dof} & " + " & ".join(cells) + r" \\")
 
     if bounds is not None:
         out += [r"\addlinespace", r"\midrule",
@@ -181,8 +225,13 @@ def render(stats, best, bounds: pd.DataFrame | None) -> str:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    strict = "--strict" in argv
+    argv = [a for a in argv if a != "--strict"]
     df = load()
-    stats, best = build(df)
+    stats, best, missing = build(df, strict=strict)
+    if missing:
+        print("[pending] rows not yet computed, rendered as dashes: "
+              + ", ".join(missing), file=sys.stderr)
     bounds = pd.read_csv(BOUNDS) if BOUNDS.exists() else None
     if bounds is None:
         print("[warn] no output/upper_bounds.csv -- table written without the "
@@ -195,7 +244,8 @@ def main(argv=None) -> int:
               f"p_vs_ref={r[('p', 'srocc')]:.3g}")
 
     tex = render(stats, best, bounds)
-    dest = Path(argv[0]) if argv else ROOT / "paper" / "tables" / "tab_baselines.tex"
+    ensure()
+    dest = Path(argv[0]) if argv else TABLES / "tab1_main.tex"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(tex, encoding="utf-8")
     print(f"\nwrote {dest}")

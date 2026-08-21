@@ -17,7 +17,7 @@ from src.utils.plots import AMBER, BLUE, GREY, grid, save, setup
 METHODS = ("pop_zero", "direct", "hybrid")
 
 STYLE = {
-    "pop_zero": dict(color=AMBER, ls=":", marker=None, label="Population GIAA (0 user params)"),
+    "pop_zero": dict(color=AMBER, ls=":", marker=None, label="Population (0 user params)"),
     "direct":   dict(color=GREY, ls="--", marker="^", label="Direct (512 params)"),
     "hybrid":   dict(color=BLUE, ls="-", marker="o", label="Hybrid (7 params)"),
 }
