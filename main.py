@@ -84,6 +84,11 @@ def main(argv=None) -> int:
                          "A partial run writes "
                          "per_unit*_<h>_seed*.csv and leaves the full run's "
                          "files untouched; merge with merge_table1.py")
+    ap.add_argument("--folds", default=None,
+                    help="efficiency: run only these fold indices, e.g. "
+                         "--folds 0,1. Folds are independent, so this is how "
+                         "one seed is spread over cores; merge the resulting "
+                         "raw*.csv files with src/utils/tools/ingest_runs.py")
     ap.add_argument("--output-dir", default=None)
     args = ap.parse_args(argv)
 
@@ -143,7 +148,9 @@ def main(argv=None) -> int:
                        mediators=args.mediators.split(",") if args.mediators else None,
                        backbone=args.backbone,
                        seeds=([int(x) for x in str(args.seed).split(",")]
-                              if args.seed is not None else (0,)))
+                              if args.seed is not None else (0,)),
+                       folds=([int(x) for x in args.folds.split(",")]
+                              if args.folds else None))
     elif args.experiment == "faithfulness":
         from src.experiments import faithfulness
         faithfulness.run(cfg, pipe)

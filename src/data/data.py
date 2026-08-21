@@ -45,7 +45,7 @@ def load_raw(data_dir: str | Path) -> pd.DataFrame:
     df = pd.read_csv(files_path)
     df = df.rename(columns={v: k for k, v in COLUMN_MAP.items() if v in df.columns})
 
-    need = ["user_id", "stimulus_id", "domain", "overall"]
+    need = ["user_id", "stimulus_id", "domain", "overall"]+CORE7
     missing = [c for c in need if c not in df.columns]
     if missing:
         raise KeyError(f"missing required columns: {missing} (have: {list(df.columns)})")

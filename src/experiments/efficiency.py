@@ -33,7 +33,7 @@ MEDIATORS = ["identity", "pca", "emotion"]
 REFERENCE = "population"     # what every row is tested against
 
 
-def _tag(variant, heads, mediators, backbone) -> str:
+def _tag(variant, heads, mediators, backbone, folds=None) -> str:
     """Distinct filename per configuration. Everything that changes the
     numbers is in the name, so parallel runs cannot overwrite one another and
     a file can be traced back to the command that made it."""
@@ -52,11 +52,15 @@ def _tag(variant, heads, mediators, backbone) -> str:
             import hashlib
             m = "_m%d_%s" % (len(mediators),
                              hashlib.md5("|".join(mediators).encode()).hexdigest()[:8])
-    return v + h + b + m
+    # a partial-fold run gets its own file, so folds running as separate
+    # processes cannot overwrite one another; ingest_runs.py merges them
+    f = "" if folds is None else "_f" + "".join(str(int(x)) for x in sorted(folds))
+    return v + h + b + m + f
 
 
 def run(cfg, pipeline, n_list: list[int], variant: str | None = None,
-        heads=None, mediators=None, seeds=(0,), backbone=None) -> pd.DataFrame:
+        heads=None, mediators=None, seeds=(0,), backbone=None,
+        folds=None) -> pd.DataFrame:
     # One folder per backbone, so a finished set (4 variants x 4 support
     # sizes x 3 seeds) sits together instead of 50-odd files sharing a flat
     # directory with every other backbone.
@@ -66,17 +70,17 @@ def run(cfg, pipeline, n_list: list[int], variant: str | None = None,
     variant = variant or cfg.stage2_variant
     heads = list(heads or ["ridge"])
     mediators = list(mediators or MEDIATORS)
-    tag = _tag(variant, heads, mediators, backbone or cfg.backbone)
+    tag = _tag(variant, heads, mediators, backbone or cfg.backbone, folds)
 
     frames = []
     for n in n_list:
         for seed in seeds:
-            print(f"[efficiency] n={n} seed={seed} variant={variant} heads={heads}",
-                  flush=True)
+            print(f"[efficiency] n={n} seed={seed} variant={variant} "
+                  f"heads={heads} folds={folds or 'all'}", flush=True)
             d = pipeline.run_grid(
                 mediators=mediators, heads=heads, n_train=n,
                 include_population=True, include_gt_upper_bound=False,
-                seed=seed, stage2_variant=variant)
+                seed=seed, stage2_variant=variant, folds=folds)
             d["n_train"], d["seed"], d["stage2_variant"] = n, seed, variant
             frames.append(d)
             record(d, "efficiency", backbone=backbone or cfg.backbone,
@@ -93,6 +97,12 @@ def run(cfg, pipeline, n_list: list[int], variant: str | None = None,
 
     key = ["n_train", "mediator", "head", "fold", "domain", "user_id"]
     df = raw.groupby(key, as_index=False)[["ccc", "srocc", "plcc", "eff_dof"]].mean()
+
+    if folds is not None:
+        # a partial run's summary would read like the whole experiment; the
+        # raw file is what ingest_runs.py merges, so stop here
+        print(f"[efficiency] folds {folds} written -> raw{tag}.csv ({len(raw)} rows)")
+        return df
 
     summary = summarize(df, n_list)
     summary.to_csv(out_dir / f"summary{tag}.csv", index=False)

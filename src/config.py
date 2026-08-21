@@ -80,7 +80,37 @@ class Config:
     stage2_variant_mediators: tuple = ("identity", "pca", "emotion",
                                        "random", "shuffled",
                                        "emotion_sd", "emotion_hist",
-                                       "pca35", "random35", "shuffled35")
+                                       "pca35", "random35", "shuffled35",
+                                       "emotion_mlp", "emotion_joint")
+
+    # --- the MLP series --------------------------------------------------
+    # One hidden layer, the same width for the extractor (Stage-1, features
+    # -> 7 concepts) and the predictor (Stage-2, 7 concepts -> 1 score).
+    # 128 and 256 were both offered; 128 is what we run, and the paper says so.
+    mlp_hidden: int = 128
+
+    # Fixed epoch budget, fixed in advance rather than tuned. early_stopping
+    # is off, and tol=0 with n_iter_no_change=mlp_max_iter is set at
+    # construction so the budget is actually spent: max_iter on its own does
+    # not guarantee it, because sklearn also halts on a training-loss plateau,
+    # and a row that quietly stopped at epoch 80 while its neighbour ran 500
+    # is not the controlled comparison this table is for.
+    mlp_max_iter: int = 500
+
+    # Step size and weight decay, selected *together* on the validation user
+    # group, by the same procedure and the same criterion as the ridge
+    # penalty. Selecting the step size but not the penalty would give ridge a
+    # 17-point regularization search and the MLP none, on a network with far
+    # more parameters than samples -- the table would then be reporting that
+    # handicap rather than the model family. Small grids because a Stage-1
+    # fit on 4096-d features costs ~25 s; the values are stated in the paper.
+    mlp_lr_grid: tuple = (1e-3, 3e-3, 1e-2)
+    mlp_alpha_grid: tuple = (1e-3, 1e-1, 1e1)
+
+    # Joint Stage-1: loss = MSE(concepts) + w * MSE(score). Fixed at 1 in
+    # advance, not tuned. The two targets sit on comparable scales (emotion
+    # sd ~= 0.55, score sd ~= 0.70), so w = 1 is close to equal weighting.
+    joint_score_weight: float = 1.0
 
     mediator_width: int = 7
 
