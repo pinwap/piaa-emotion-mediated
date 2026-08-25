@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 FULL_WIDTH = 7.0
+COL_WIDTH = 3.3
 HEIGHT_2PANEL = 1.9
 HEIGHT_3PANEL = 2.2
 

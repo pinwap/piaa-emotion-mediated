@@ -1,27 +1,22 @@
-"""Faithfulness figure -- formula swap, concept ablation, weight-vs-empirical.
-
-Reads output/faithfulness/{ablation,formula_swap,weight_vs_empirical}.csv and
-computes every mean/error bar directly from them -- nothing hardcoded.
-
-err="sd"  -> bars show +/- 1 sample sd across user-domain units
-err="sem" -> bars show +/- 1 standard error of the mean (sd / sqrt(n))
-
-Output: figures_dir/fig_faithfulness_{sd,sem}.pdf
+"""Faithfulness figure -- 2 Panels (Formula swap & Concept ablation)
+Matching the exact paper theme in src.utils.plots with hatch pattern for Plain
 """
 from __future__ import annotations
 
+from pathlib import Path
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from src.data.data import DOMAINS
-from src.utils.plots import AMBER, BLUE, GREY, TEAL, grid, save, setup
+from src.utils.plots import BLUE, COL_WIDTH, GREY, AMBER, grid, save, setup, FULL_WIDTH
 
 DOM_LABEL = {"art": "Artwork", "fashion": "Fashion", "landscape": "Landscape"}
 GROUPS = DOMAINS + [None]
 XLABELS = [DOM_LABEL[d] for d in DOMAINS] + ["Average"]
 
 
-def stat(series: pd.Series, err: str="sem") -> tuple[float, float]:
+def stat(series: pd.Series, err: str = "sem") -> tuple[float, float]:
     v = series.to_numpy(float)
     v = v[np.isfinite(v)]
     m, sd = v.mean(), v.std(ddof=1)
@@ -38,84 +33,101 @@ def grouped(df: pd.DataFrame, col: str, err: str) -> tuple[np.ndarray, np.ndarra
     return np.array(means), np.array(errs)
 
 
-def bar_group(ax, series: dict[str, tuple[np.ndarray, np.ndarray]], colors: dict):
-    n = len(series)
-    width = 0.8 / n
+def panel_swap(ax, swap_anc: pd.DataFrame, swap_pln: pd.DataFrame, err: str):
     x = np.arange(len(XLABELS))
-    for i, (label, (means, errs)) in enumerate(series.items()):
-        off = (i - (n - 1) / 2) * width
-        ax.bar(x + off, means, width, yerr=errs, capsize=2, label=label,
-              color=colors[label], edgecolor="white", linewidth=0.4)
+    width = 0.125
+
+    # Pop-Anchored (Primary: Solid BLUE tones)
+    m_own_a, e_own_a = grouped(swap_anc, "own_srocc", err)
+    m_pop_a, e_pop_a = grouped(swap_anc, "pop_srocc", err)
+    m_oth_a, e_oth_a = grouped(swap_anc, "other_srocc", err)
+
+    # Plain (Comparison: Soft Grey with academic Hatch)
+    m_own_p, e_own_p = grouped(swap_pln, "own_srocc", err)
+    m_pop_p, e_pop_p = grouped(swap_pln, "pop_srocc", err)
+    m_oth_p, e_oth_p = grouped(swap_pln, "other_srocc", err)
+
+    # Draw 6 bars per x-location:
+    ax.bar(x - 2.5 * width, m_own_a, width, yerr=e_own_a, capsize=2, label="Own (Anchor)",
+           color=BLUE, edgecolor="white", linewidth=0.4)
+    ax.bar(x - 1.5 * width, m_own_p, width, yerr=e_own_p, capsize=2, label="Own (Plain)",
+           color=GREY, hatch="///", edgecolor="white", linewidth=0.4)
+
+    ax.bar(x - 0.5 * width, m_pop_a, width, yerr=e_pop_a, capsize=2, label="Pop (Anchor)",
+           color="#5B9BD5", edgecolor="white", linewidth=0.4)
+    ax.bar(x + 0.5 * width, m_pop_p, width, yerr=e_pop_p, capsize=2, label="Pop (Plain)",
+           color="#B0B0B0", hatch="///", edgecolor="white", linewidth=0.4)
+
+    ax.bar(x + 1.5 * width, m_oth_a, width, yerr=e_oth_a, capsize=2, label="Other (Anchor)",
+           color="#AFC9E8", edgecolor="white", linewidth=0.4)
+    ax.bar(x + 2.5 * width, m_oth_p, width, yerr=e_oth_p, capsize=2, label="Other (Plain)",
+           color="#D0D0D0", hatch="///", edgecolor="white", linewidth=0.4)
+
     ax.set_xticks(x)
-    ax.set_xticklabels(XLABELS)
-    grid(ax)
-    ax.set_axisbelow(True)
-
-
-def panel_swap(ax, swap: pd.DataFrame, err: str):
-    series = {
-        "Own Formula": grouped(swap, "own_srocc", err),
-        "Population Mean": grouped(swap, "pop_srocc", err),
-        "Other User (Swap)": grouped(swap, "other_srocc", err),
-    }
-    colors = {"Own Formula": BLUE, "Population Mean": "#5B9BD5", "Other User (Swap)": "#AFC9E8"}
-    bar_group(ax, series, colors)
-    ax.set_ylabel("Spearman SROCC")
+    ax.set_xticklabels(XLABELS, fontsize=7)
+    # ax.set_ylabel("Spearman SROCC")
     ax.set_title("(a) Formula Swap (Personalization)", fontsize=8.5)
-    ax.legend(fontsize=6, loc="upper right")
+    ax.set_ylim(0.15, 0.58)
+    grid(ax)
+    ax.legend(fontsize=6, loc="upper right", ncol=3, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.1))
 
 
 def panel_ablation(ax, abl: pd.DataFrame, err: str):
     series = {
         "Full Model": grouped(abl, "base_srocc", err),
-        "w/o Top-1 Concept": grouped(abl, "top1_srocc", err),
-        "w/o Avg-1 Concept": grouped(abl, "avg1_srocc", err),
-        "w/o Bottom-1 Concept": grouped(abl, "bottom1_srocc", err),
+        "w/o Bottom-1": grouped(abl, "bottom1_srocc", err),
+        "w/o Avg-1": grouped(abl, "avg1_srocc", err),
+        "w/o Top-1": grouped(abl, "top1_srocc", err),
     }
-    colors = {"Full Model": BLUE, "w/o Top-1 Concept": "#8C4A0F",
-             "w/o Avg-1 Concept": AMBER, "w/o Bottom-1 Concept": "#E8B87A"}
-    bar_group(ax, series, colors)
-    ax.set_ylabel("Spearman SROCC")
+    colors = {
+        "Full Model": BLUE,
+        "w/o Bottom-1": "#E8B87A",
+        "w/o Avg-1": AMBER,
+        "w/o Top-1": "#8C4A0F"
+    }
+
+    n = len(series)
+    width = 0.125 #0.8 / n
+    x = np.arange(len(XLABELS))
+    for i, (label, (means, errs)) in enumerate(series.items()):
+        off = (i - (n - 1) / 2) * width
+        ax.bar(x + off, means, width, yerr=errs, capsize=2, label=label,
+               color=colors[label], edgecolor="white", linewidth=0.4)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(XLABELS, fontsize=7)
     ax.set_title("(b) Concept Ablation (Importance)", fontsize=8.5)
-    ax.legend(fontsize=6, loc="upper right")
+    ax.set_ylim(0.15, 0.58)
+    grid(ax)
+    ax.legend(fontsize=6, loc="upper right", ncol=4, frameon=False, handlelength=1.1, columnspacing=0.6, bbox_to_anchor=(1.0, 1.07))
 
 
-def panel_align(ax, align: pd.DataFrame, err: str):
-    series = {
-        "Spearman": grouped(align, "spearman", err),
-        "Pearson": grouped(align, "pearson", err),
-    }
-    colors = {"Spearman": BLUE, "Pearson": TEAL}
-    bar_group(ax, series, colors)
-    ax.axhline(0, color="#888888", lw=0.6, ls="--")
-    ax.set_ylabel("weight vs. empirical corr.")
-    ax.set_title("(c) Weight vs. Empirical Correlation", fontsize=8.5)
-    ax.legend(fontsize=6, loc="upper right")
-
-
-def run(cfg, err: str = "sd"):
-    import matplotlib.pyplot as plt
-
+def run(cfg, err: str = "sem"):
     setup()
     out_dir = cfg.output_dir / "faithfulness"
     abl = pd.read_csv(out_dir / "ablation.csv")
-    swap = pd.read_csv(out_dir / "formula_swap.csv")
-    align = pd.read_csv(out_dir / "weight_vs_empirical.csv")
+    swap_pln = pd.read_csv(out_dir / "formula_swap.csv")
+    swap_anc = pd.read_csv(out_dir / "formula_swap_anchored_C.csv")
 
-    fig, axes = plt.subplots(1, 3, figsize=(10.0, 2.6))
-    panel_swap(axes[0], swap, err)
+    fig, axes = plt.subplots(2, 1, figsize=(COL_WIDTH, 3.4), sharex=True)
+    panel_swap(axes[0], swap_anc, swap_pln, err)
     panel_ablation(axes[1], abl, err)
-    panel_align(axes[2], align, err)
-    fig.tight_layout()
+    
+    # Tight margins, minimal horizontal gap between panels
+    # fig.tight_layout()
+    fig.supylabel("Spearman SROCC", fontsize=8, x=-0.05)
+    fig.subplots_adjust(hspace=0.28, left=0.07, right=0.98, top=0.90, bottom=0.22)
+    
     save(fig, cfg.figures_dir / f"fig_faithfulness_{err}")
+    # Also save copy directly to paper figures
+    paper_dir = Path(r"d:\Pin\STUDY\0CU\แลกเปลี่ยน\JAIST Internship2025\PIAA_project\paper\final\figures")
+    save(fig, paper_dir / f"fig_faithfulness_{err}")
 
 
 if __name__ == "__main__":
     import sys
-
     sys.path.insert(0, ".")
     from src.config import Config
 
     cfg = Config()
-    run(cfg, "sd")
     run(cfg, "sem")

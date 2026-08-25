@@ -62,6 +62,10 @@ def run(cfg, backbone_names: list[str], variant: str | None = None,
                            include_population=True, include_gt_upper_bound=False,
                            stage2_variant=variant)
         df["backbone"] = name
+        # run_grid does not stamp the run-level seed (efficiency.py adds it
+        # afterwards); this table is a single-seed run, and the results
+        # database requires the column
+        df["seed"] = 0
         frames.append(df)
         record(df, "backbone", backbone=name, variant=variant,
                n_train=cfg.n_train)
