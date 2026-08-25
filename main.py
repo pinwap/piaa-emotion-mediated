@@ -12,6 +12,9 @@ Every command writes to output/<experiment name>/, always with a config.json nex
 from __future__ import annotations
 
 import os
+import warnings
+from scipy.linalg import LinAlgWarning
+warnings.filterwarnings("ignore", category=LinAlgWarning)
 
 # *** bit-for-bit reproducibility -- must run before numpy is imported ***
 # Multi-threaded BLAS sums in whatever order the threads finish, so the same
@@ -51,6 +54,7 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("experiment",
                     choices=["table1", "backbone", "efficiency", "faithfulness",
+                            "formula_weights",
                             "stage1_emotion_acc",
                             "stage2_emotion_importance", "fig_faithfulness",
                             "fig_efficiency", "verify"])
@@ -90,6 +94,7 @@ def main(argv=None) -> int:
                          "one seed is spread over cores; merge the resulting "
                          "raw*.csv files with src/utils/tools/ingest_runs.py")
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument("--joint-concept-weight", type=float, default=None, help="lam in L=MSE(score)/2 + lam*MSE(concept)/2, as in Koh et al. (2020). Default 1.0.")
     args = ap.parse_args(argv)
 
     cfg = Config()
@@ -98,6 +103,8 @@ def main(argv=None) -> int:
     if args.output_dir:
         cfg.output_dir = Path(args.output_dir)
     cfg.backbone = args.backbone
+    if args.joint_concept_weight is not None:
+        cfg.joint_concept_weight = args.joint_concept_weight
 
     if args.experiment == "verify":
         from src.utils import verify
@@ -154,6 +161,14 @@ def main(argv=None) -> int:
     elif args.experiment == "faithfulness":
         from src.experiments import faithfulness
         faithfulness.run(cfg, pipe)
+    elif args.experiment == "formula_weights":
+        from src.experiments import formula_weights
+        formula_weights.run(
+            cfg, pipe, variant=args.stage2 or "C",
+            n_train=int(args.n_train.split(",")[-1]),
+            mediator=(args.mediators.split(",")[0]
+                      if args.mediators else "emotion"),
+            seed=int(str(args.seed).split(",")[0]) if args.seed else 0)
     elif args.experiment == "stage1_emotion_acc":
         from src.experiments import stage1_emotion_acc
         stage1_emotion_acc.run(cfg, pipe)

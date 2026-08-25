@@ -16,9 +16,10 @@ import pandas as pd
 
 from src.data.data import CORE7, DOMAINS, XpassDataset
 from src.data.splits import V4Split, per_user_split, user_rng
-from src.modeling.heads import (ALPHA_HEADS, ALPHA_TIE_RTOL,
-                                conservative_mlp_hp, head_grid, make_head)
+from src.modeling.heads import (ALPHA_HEADS, ALPHA_TIE_RTOL, head_grid,
+                                make_head)
 from src.modeling.mediators import build_shared_mediators
+from src.utils import selection_log
 from src.utils.metrics import evaluate, srocc
 
 
@@ -34,6 +35,12 @@ class UserUnit:
     y_eval: np.ndarray
     E_train: np.ndarray      # user's true emotion ratings on support (upper bound)
     E_eval: np.ndarray
+    # stimulus ids behind X_train / X_eval, in the same row order. Only
+    # the qualitative-figure export reads them; every other consumer
+    # ignores them, and they default to empty so nothing that builds a
+    # UserUnit positionally has to change.
+    train_ids: tuple = ()
+    eval_ids: tuple = ()
 
 
 class _WithPopFeature:
@@ -83,11 +90,11 @@ class _ResidualHead:
         M = np.asarray(M, float)
         return M if self.scaler is None else self.scaler.transform(M)
 
-    def fit(self, M, y, X_raw=None, frozen_alpha=None, frozen_hp=None, **_):
+    def fit(self, M, y, X_raw=None, frozen_alpha=None, frozen_lr=None, **_):
         r = np.asarray(y, float).ravel() - self._pop(X_raw)
         Z = self._z(M)
-        if frozen_hp is not None:
-            self.head.fit(Z, r, frozen_hp=frozen_hp)
+        if frozen_lr is not None:
+            self.head.fit(Z, r, frozen_lr=frozen_lr)
         elif frozen_alpha is not None:
             self.head.fit(Z, r, frozen_alpha=frozen_alpha)
         else:
@@ -187,6 +194,13 @@ class Pipeline:
         self.ds = dataset
         self.backbone = backbone
         self.split = split
+        #: every hyperparameter the last run_grid() selected, with the grid it
+        #: was selected from. The caller writes it next to its results; see
+        #: src/utils/selection_log.py for the schema.
+        self.selection_records: list[dict] = []
+        #: stamped onto those rows so one selection log can be read next to
+        #: another. Set by whichever experiment is driving.
+        self.experiment_name: str | None = None
 
     def iter_units(self, fold, domain: str, feats, n_train: int | None = None,
                   users=None):
@@ -223,6 +237,8 @@ class Pipeline:
                 y_eval=agg.loc[ev, "overall"].to_numpy(float),
                 E_train=agg.loc[tr, CORE7].to_numpy(float),
                 E_eval=agg.loc[ev, CORE7].to_numpy(float),
+                train_ids=tuple(str(s) for s in tr),
+                eval_ids=tuple(str(s) for s in ev),
             )
 
     def group_data(self, users, domain: str, feats, with_dist: bool = False):
@@ -284,7 +300,7 @@ class Pipeline:
         """(X, E, y) of the held-out validation user group for this fold/domain."""
         return self.group_data(fold.val_users, domain, feats)
 
-    def pop_anchor(self, med, Xg, yg, Xv, yv):
+    def pop_anchor(self, med, Xg, yg, Xv, yv, mediator_name=None):
         """(scaler, w_pop, b_pop) for variant B: the Stage-2 coefficients of
         the pooled training group, in the training group's own units."""
         from sklearn.linear_model import Ridge
@@ -295,7 +311,9 @@ class Pipeline:
         scaler = StandardScaler().fit(Mg)
         Zg, Zv = scaler.transform(Mg), scaler.transform(Mv)
         alphas = np.asarray(self.cfg.ridge_alphas, float)
-        a = select_alpha_on_val(Zg, yg, (Zv, yv), alphas)
+        a = select_alpha_on_val(Zg, yg, (Zv, yv), alphas, stage="anchor",
+                                component="pop_anchor",
+                                mediator=mediator_name)
         r = Ridge(alpha=a).fit(Zg, yg)
         return scaler, r.coef_.ravel(), float(r.intercept_)
 
@@ -323,7 +341,8 @@ class Pipeline:
 
     def select_personal_hyperparam(self, fold, domain: str, feats, med, kind: str,
                                    n_train: int, variant: str = "plain",
-                                   anchor=None, pop_head=None):
+                                   anchor=None, pop_head=None,
+                                   mediator_name=None):
         """Freeze one personal-head hyperparameter for (fold, domain, n_train)
         by mirroring the test protocol inside the validation user group.
 
@@ -346,7 +365,7 @@ class Pipeline:
         """
         cfg = self.cfg
         is_alpha = kind in ALPHA_HEADS
-        cands = [float(c) if is_alpha else tuple(c) for c in head_grid(kind, cfg)]
+        cands = [float(c) for c in head_grid(kind, cfg)]
         scores = {c: [] for c in cands}
 
         for unit in self.iter_units(fold, domain, feats, n_train=n_train,
@@ -354,7 +373,7 @@ class Pipeline:
             M_tr = med.transform(unit.X_train)
             M_ev = med.transform(unit.X_eval)
             for c in cands:
-                kw = {"frozen_alpha": c} if is_alpha else {"frozen_hp": c}
+                kw = {"frozen_alpha": c} if is_alpha else {"frozen_lr": c}
                 h = self.make_personal(kind, unit.user_id, variant, anchor, pop_head)
                 if isinstance(h, (_ResidualHead, _PopAnchoredRidge)):
                     h.fit(M_tr, unit.y_train, X_raw=unit.X_train, **kw)
@@ -366,10 +385,182 @@ class Pipeline:
         means = {c: (np.mean(v) if v else -np.inf) for c, v in scores.items()}
         best = max(means.values())
         tied = [c for c, s in means.items() if s >= best - abs(best) * ALPHA_TIE_RTOL]
-        if is_alpha:
-            # same tie-break direction as select_alpha_on_val: strongest penalty
-            return max(tied)
-        return conservative_mlp_hp(tied)
+        # same tie-break direction as select_alpha_on_val for a penalty --
+        # the strongest, i.e. the more regularized model. A learning rate is
+        # conservative in the other direction, so the smallest step wins.
+        chosen = max(tied) if is_alpha else min(tied)
+        n_units = len(next(iter(scores.values()))) if scores else 0
+        log_cands = (cands if is_alpha
+                     else [(c, cfg.mlp_alpha) for c in cands])
+        log_chosen = chosen if is_alpha else (chosen, cfg.mlp_alpha)
+        selection_log.note(
+            "stage2_personal", f"personal_{kind}", "val_srocc_mean",
+            log_cands, [means[c] for c in cands], log_chosen,
+            lower_is_better=False,
+            mediator=mediator_name, head=kind,
+            n_val_scored=n_units, n_val_kind="user_units",
+            n_val_users=len(fold.val_users),
+            extra_note=f"variant={variant} n_train={n_train}")
+        return chosen
+
+    def _eval_fold_domain(self, fold_index: int, dom: str,
+                          mediators: list[str], heads: list[str],
+                          n_train: int | None, include_population: bool,
+                          include_gt_upper_bound: bool, seed: int,
+                          variant: str) -> tuple[list[dict], list[dict]]:
+        """Evaluate one (fold, domain) slice.
+
+        Returns (result rows, selection-log rows). The second element is
+        every hyperparameter this slice selected, with the grid it was
+        selected from -- see src/utils/selection_log.py. It is returned
+        rather than written here because this method runs inside a joblib
+        worker process when n_jobs > 1, and only the return value comes back.
+        """
+        cfg = self.cfg
+        with selection_log.collecting(
+                experiment=getattr(self, "experiment_name", None),
+                backbone=getattr(self.backbone, "name", None),
+                variant=variant, n_train=n_train or cfg.n_train,
+                seed=seed, fold=fold_index, domain=dom) as sel:
+            rows = self._eval_fold_domain_inner(
+                fold_index, dom, mediators, heads, n_train,
+                include_population, include_gt_upper_bound, seed, variant)
+        return rows, sel
+
+    def _eval_fold_domain_inner(self, fold_index: int, dom: str,
+                                mediators: list[str], heads: list[str],
+                                n_train: int | None, include_population: bool,
+                                include_gt_upper_bound: bool, seed: int,
+                                variant: str) -> list[dict]:
+        """The evaluation itself. Split out so the selection buffer above
+        wraps every selection, including the ones inside shared_context."""
+        cfg = self.cfg
+        fold = [f for f in self.split.folds() if f.index == fold_index][0]
+        feats = self.backbone.features_for_fold(fold.index)
+        want = list(dict.fromkeys(
+            list(mediators) + ["identity", "emotion", "pca", "random",
+                               "shuffled"]))
+        Xg, Eg, yg, meds = self.shared_context(
+            fold, dom, feats, seed=seed, want=want)
+        n = n_train or cfg.n_train
+
+        print(f"  [Fold {fold.index} | {dom}] -> [1/3] Fitting Population Heads & Anchors...", flush=True)
+        # GIAA head. Always fit: it is the population baseline row and
+        # also the y_pop that variants A and C are built on.
+        # shared component -> hyperparameter from the val group
+        Xv, _, yv = self.val_data(fold, dom, feats)
+        pop_models = {}
+        for h in set(heads) | {"ridge"}:
+            base = 100 + fold.index if h == "mlp" else 0
+            hseed = base if (h != "mlp" or seed == 0) else base + seed * 1_000_003
+            pop_models[h] = make_head(h, cfg, seed=hseed).fit(
+                Xg, yg, val=(Xv, yv))
+        pop_ridge = pop_models["ridge"]
+
+        # the variant reaches only the mediators listed in the config,
+        # so the content-free controls stay content-free
+        touched = set(cfg.stage2_variant_mediators)
+        if variant == "A":
+            for k in list(meds):
+                if k in touched:
+                    meds[k] = _WithPopFeature(meds[k], pop_ridge)
+
+        # C needs the training-group scaler too, even though it does
+        # not use w_pop -- the correction it learns has to live in the
+        # same units for every user
+        anchors = {}
+        if variant in ("B", "C"):
+            for mname in mediators:
+                if mname in touched:
+                    anchors[mname] = self.pop_anchor(
+                        meds[mname], Xg, yg, Xv, yv, mediator_name=mname)
+
+        print(f"  [Fold {fold.index} | {dom}] -> [2/3] Tuning Hyperparameters on Validation Group ({len(fold.val_users)} users)...", flush=True)
+        # freeze one personal-head hyperparameter per (mediator, head)
+        frozen = {}
+        for mname in mediators:
+            for h in heads:
+                frozen[(mname, h)] = self.select_personal_hyperparam(
+                    fold, dom, feats, meds[mname], h, n, variant,
+                    anchors.get(mname), pop_ridge, mediator_name=mname)
+
+        print(f"  [Fold {fold.index} | {dom}] -> [3/3] Evaluating Personalized Models for {len(fold.test_users)} Test Users...", flush=True)
+        rows = []
+        # what the frozen hyperparameter produced once it met a real user:
+        # epochs run, support size, and how much of the head survived. Kept
+        # per (mediator, head) and summarized after the loop, because one row
+        # per user would bury the selection log it lives in.
+        diag: dict = {}
+        for u_idx, unit in enumerate(self.iter_units(fold, dom, feats, n_train=n_train), 1):
+            if u_idx % 10 == 0 or u_idx == len(fold.test_users):
+                print(f"    [Fold {fold.index} | {dom}] Test User {u_idx}/{len(fold.test_users)} evaluated", flush=True)
+            base = dict(fold=unit.fold, domain=unit.domain,
+                        user_id=unit.user_id)
+
+            for h in heads:
+                if include_population:
+                    p = pop_models[h].predict(unit.X_eval)
+                    rows.append({**base, "mediator": "population", "head": h,
+                                 "eff_dof": np.nan,
+                                 **evaluate(unit.y_eval, p)})
+
+                for mname in mediators:
+                    med = meds[mname]
+                    M_tr = med.transform(unit.X_train)
+                    M_ev = med.transform(unit.X_eval)
+                    hseed = (unit.user_id if seed == 0
+                            else unit.user_id + seed * 1_000_003)
+                    fval = frozen[(mname, h)]
+                    head = self.make_personal(h, hseed, variant,
+                                              anchors.get(mname), pop_ridge)
+                    kw = ({"frozen_alpha": fval} if h in ALPHA_HEADS
+                          else {"frozen_lr": fval})
+                    if isinstance(head, (_ResidualHead, _PopAnchoredRidge)):
+                        head.fit(M_tr, unit.y_train,
+                                 X_raw=unit.X_train, **kw)
+                        p = head.predict(M_ev, X_raw=unit.X_eval)
+                    else:
+                        p = head.fit(M_tr, unit.y_train, **kw).predict(M_ev)
+                    rows.append({**base, "mediator": mname, "head": h,
+                                 "eff_dof": head.effective_dof(),
+                                 **evaluate(unit.y_eval, p)})
+                    d = diag.setdefault((mname, h), {"n_iter": [], "dof": [],
+                                                     "n_support": [], "width": []})
+                    d["n_iter"].append(_head_n_iter(head))
+                    d["dof"].append(head.effective_dof())
+                    d["n_support"].append(len(unit.y_train))
+                    d["width"].append(M_tr.shape[1])
+
+            if include_gt_upper_bound:
+                # a reference ceiling excluded from every fairness
+                # comparison in the paper, not a condition being
+                # compared -- keeps its own per-user selection
+                head = make_head("ridge", cfg).fit(unit.E_train, unit.y_train)
+                p = head.predict(unit.E_eval)
+                rows.append({**base, "mediator": "gt_emotion", "head": "ridge",
+                             "eff_dof": head.effective_dof(),
+                             **evaluate(unit.y_eval, p)})
+
+        for (mname, h), d in diag.items():
+            lr, alpha = ((frozen[(mname, h)], cfg.mlp_alpha)
+                         if h not in ALPHA_HEADS
+                         else (None, frozen[(mname, h)]))
+            for name, vals, note_ in (
+                    ("n_units", [len(d["n_iter"])], None),
+                    ("mediator_width", d["width"], None),
+                    ("n_support", d["n_support"], None),
+                    ("mean_n_iter", d["n_iter"], f"max_iter={cfg.mlp_max_iter}"),
+                    ("frac_hit_max_iter",
+                     [float(v >= cfg.mlp_max_iter) for v in d["n_iter"]
+                      if v == v], None),
+                    ("mean_eff_dof", d["dof"], None)):
+                vals = [v for v in vals if v == v]     # drop NaN
+                if vals:
+                    selection_log.note_fit(
+                        "stage2_personal", f"personal_{h}", name,
+                        float(np.mean(vals)), mediator=mname, head=h,
+                        lr=lr, alpha=alpha, extra_note=note_)
+        return rows
 
     def run_grid(self, mediators: list[str], heads: list[str],
                  n_train: int | None = None, include_population: bool = True,
@@ -407,106 +598,42 @@ class Pipeline:
         domains = domains or DOMAINS
         variant = stage2_variant or cfg.stage2_variant
         rows = []
-
+        n_jobs = getattr(cfg, "n_jobs", 1)
         want_folds = None if folds is None else {int(f) for f in folds}
-        for fold in self.split.folds():
-            if want_folds is not None and fold.index not in want_folds:
-                continue
-            feats = self.backbone.features_for_fold(fold.index)
-            for dom in domains:
-                want = list(dict.fromkeys(
-                    list(mediators) + ["identity", "emotion", "pca", "random",
-                                       "shuffled"]))
-                Xg, Eg, yg, meds = self.shared_context(
-                    fold, dom, feats, seed=seed, want=want)
-                n = n_train or cfg.n_train
+        tasks = [(fold.index, dom) for fold in self.split.folds()
+                 if (want_folds is None or fold.index in want_folds)
+                 for dom in domains]
 
-                # GIAA head. Always fit: it is the population baseline row and
-                # also the y_pop that variants A and C are built on.
-                # shared component -> hyperparameter from the val group
-                Xv, _, yv = self.val_data(fold, dom, feats)
-                pop_models = {}
-                for h in (set(heads) | {"ridge"}) - {"mlp"}:
-                    pop_models[h] = make_head(h, cfg, seed=0).fit(
-                        Xg, yg, val=(Xv, yv))
-                pop_ridge = pop_models["ridge"]
-                # The population row uses none of the user's own ratings, so
-                # it is the GIAA model itself and does not depend on which
-                # personal head is being tested. Fitting a separate MLP GIAA
-                # head would spend a full hyperparameter search per fold and
-                # domain to produce a row the paper does not report -- and the
-                # MLP series is anchored on this same ridge GIAA head anyway,
-                # exactly like every other row.
-                pop_models.setdefault("mlp", pop_ridge)
+        selections: list[dict] = []
+        if n_jobs == 1 or len(tasks) <= 1:
+            for fold_idx, dom in tasks:
+                fold_rows, fold_sel = self._eval_fold_domain(
+                    fold_idx, dom, mediators, heads, n_train,
+                    include_population, include_gt_upper_bound, seed, variant)
+                rows.extend(fold_rows)
+                selections.extend(fold_sel)
+                if dom == domains[-1]:
+                    print(f"  fold {fold_idx} done ({len(rows)} rows)", flush=True)
+        else:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(_eval_fold_domain_worker)(
+                    self, fold_idx, dom, mediators, heads, n_train,
+                    include_population, include_gt_upper_bound, seed, variant)
+                for fold_idx, dom in tasks
+            )
+            for fold_rows, fold_sel in results:
+                rows.extend(fold_rows)
+                selections.extend(fold_sel)
+            for fold_idx in sorted(set(f for f, _ in tasks)):
+                f_count = sum(len(r) for (f, _), (r, _s) in zip(tasks, results)
+                              if f <= fold_idx)
+                print(f"  fold {fold_idx} done ({f_count} rows)", flush=True)
 
-                # the variant reaches only the mediators listed in the config,
-                # so the content-free controls stay content-free
-                touched = set(cfg.stage2_variant_mediators)
-                if variant == "A":
-                    for k in list(meds):
-                        if k in touched:
-                            meds[k] = _WithPopFeature(meds[k], pop_ridge)
-
-                # C needs the training-group scaler too, even though it does
-                # not use w_pop -- the correction it learns has to live in the
-                # same units for every user
-                anchors = {}
-                if variant in ("B", "C"):
-                    for mname in mediators:
-                        if mname in touched:
-                            anchors[mname] = self.pop_anchor(
-                                meds[mname], Xg, yg, Xv, yv)
-
-                # freeze one personal-head hyperparameter per (mediator, head)
-                frozen = {}
-                for mname in mediators:
-                    for h in heads:
-                        frozen[(mname, h)] = self.select_personal_hyperparam(
-                            fold, dom, feats, meds[mname], h, n, variant,
-                            anchors.get(mname), pop_ridge)
-
-                for unit in self.iter_units(fold, dom, feats, n_train=n_train):
-                    base = dict(fold=unit.fold, domain=unit.domain,
-                                user_id=unit.user_id)
-
-                    for h in heads:
-                        if include_population:
-                            p = pop_models[h].predict(unit.X_eval)
-                            rows.append({**base, "mediator": "population", "head": h,
-                                         "eff_dof": np.nan,
-                                         **evaluate(unit.y_eval, p)})
-
-                        for mname in mediators:
-                            med = meds[mname]
-                            M_tr = med.transform(unit.X_train)
-                            M_ev = med.transform(unit.X_eval)
-                            hseed = (unit.user_id if seed == 0
-                                    else unit.user_id + seed * 1_000_003)
-                            fval = frozen[(mname, h)]
-                            head = self.make_personal(h, hseed, variant,
-                                                      anchors.get(mname), pop_ridge)
-                            kw = ({"frozen_alpha": fval} if h in ALPHA_HEADS
-                                  else {"frozen_hp": fval})
-                            if isinstance(head, (_ResidualHead, _PopAnchoredRidge)):
-                                head.fit(M_tr, unit.y_train,
-                                         X_raw=unit.X_train, **kw)
-                                p = head.predict(M_ev, X_raw=unit.X_eval)
-                            else:
-                                p = head.fit(M_tr, unit.y_train, **kw).predict(M_ev)
-                            rows.append({**base, "mediator": mname, "head": h,
-                                         "eff_dof": head.effective_dof(),
-                                         **evaluate(unit.y_eval, p)})
-
-                    if include_gt_upper_bound:
-                        # a reference ceiling excluded from every fairness
-                        # comparison in the paper, not a condition being
-                        # compared -- keeps its own per-user selection
-                        head = make_head("ridge", cfg).fit(unit.E_train, unit.y_train)
-                        p = head.predict(unit.E_eval)
-                        rows.append({**base, "mediator": "gt_emotion", "head": "ridge",
-                                     "eff_dof": head.effective_dof(),
-                                     **evaluate(unit.y_eval, p)})
-            print(f"  fold {fold.index} done ({len(rows)} rows)", flush=True)
+        # the caller writes it (see table1.py / efficiency.py); keeping it on
+        # the pipeline means every existing caller of run_grid still gets the
+        # same DataFrame back and nothing downstream has to change
+        self.selection_records = selections
         return pd.DataFrame(rows)
 
     def collect_user_heads(self, mediator: str = "emotion",
@@ -533,3 +660,23 @@ class Pipeline:
                                       E_eval=unit.E_eval))
             print(f"  fold {fold.index} done ({len(store)} units)", flush=True)
         return store
+
+
+def _head_n_iter(head) -> float:
+    """Epochs the personal MLP ran, through whichever variant wrapper is on
+    top of it. NaN for a head that does not iterate (ridge, lasso)."""
+    inner = getattr(head, "head", head)          # _ResidualHead wraps one
+    return float(getattr(inner, "n_iter_", np.nan))
+
+
+def _eval_fold_domain_worker(pipe: Pipeline, fold_index: int, dom: str,
+                             mediators: list[str], heads: list[str],
+                             n_train: int | None, include_population: bool,
+                             include_gt_upper_bound: bool, seed: int,
+                             variant: str) -> tuple[list[dict], list[dict]]:
+    res, sel = pipe._eval_fold_domain(
+        fold_index, dom, mediators, heads, n_train,
+        include_population, include_gt_upper_bound, seed, variant)
+    print(f"  --> [Parallel Worker] Fold {fold_index} ({dom}) completed successfully "
+          f"({len(res)} rows, {len(sel)} selection rows)", flush=True)
+    return res, sel
