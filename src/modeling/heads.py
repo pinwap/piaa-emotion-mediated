@@ -228,28 +228,31 @@ class SparseLinearHead(Head):
         return self._pipe[-1].coef_.ravel().copy()
 
 
-def make_mlp(cfg, lr, seed: int, scale: bool = True):
+def make_mlp(cfg, lr, seed: int, scale: bool = True, max_iter=None):
     """The one place an MLP is constructed, so the extractor and the predictor
     cannot drift apart. One hidden layer of cfg.mlp_hidden units in both.
 
-    The learning rate is the only thing selected; weight decay is fixed at
-    cfg.mlp_alpha and the epoch budget at cfg.mlp_max_iter, both stated in
-    advance rather than tuned.
+    Two things are selected, the learning rate and the epoch budget, and both
+    are selected the same way: on a validation user group disjoint from the
+    training and test users. Weight decay stays fixed at cfg.mlp_alpha.
 
-    early_stopping=False removes the internal 85/15 split, which on a support
-    set of 10 ratings would leave one or two validation samples and no usable
-    stopping signal. tol=0 with n_iter_no_change=max_iter removes the *other*
-    way sklearn stops early -- a training-loss plateau -- so every MLP really
-    does train for the same fixed number of epochs.
+    Both of sklearn's own stopping rules are off, and they are off because
+    each takes its signal from data this protocol reserves for something
+    else. early_stopping=True holds out 15% of the fitted set, which on a
+    support set of 10 ratings is one or two samples. tol=0 with
+    n_iter_no_change=max_iter disables the training-loss plateau rule, which
+    reads the loss of the set being fitted. Stopping is decided on held-out
+    *users* instead, by the caller, and arrives here as max_iter.
     """
     from sklearn.neural_network import MLPRegressor
 
+    budget = int(max_iter if max_iter is not None else cfg.mlp_max_iter)
     net = MLPRegressor(
         hidden_layer_sizes=(int(cfg.mlp_hidden),), activation="relu",
         solver="adam", alpha=float(cfg.mlp_alpha),
         learning_rate_init=float(lr),
-        max_iter=int(cfg.mlp_max_iter), early_stopping=False,
-        tol=0.0, n_iter_no_change=int(cfg.mlp_max_iter),
+        max_iter=int(budget), early_stopping=False,
+        tol=0.0, n_iter_no_change=int(budget),
         random_state=int(seed))
     return make_pipeline(StandardScaler(), net) if scale else net
 
@@ -278,17 +281,22 @@ class MLPHead(Head):
         self.cfg, self.seed, self.scale = cfg, int(seed), bool(scale)
         self.model = None
         self._lr = np.nan
+        self._epochs = np.nan
 
     def fit(self, M, y, val=None, frozen_lr=None, **_):
+        """`frozen_lr` is an (lr, epochs) pair. A bare number is still
+        accepted and means "this rate, for the full cfg.mlp_max_iter
+        budget", which is what the earlier fixed-budget runs did."""
         if frozen_lr is None:
             if val is None:
                 raise ValueError(
-                    "MLPHead needs a learning rate frozen on the validation "
-                    "group; it must not choose one from the user's own "
-                    "support set")
+                    "MLPHead needs a learning rate and an epoch budget frozen "
+                    "on the validation group; it must not choose either from "
+                    "the user's own support set")
             frozen_lr = self._select_on_val(M, y, val)
-        self._lr = float(frozen_lr)
-        self.model = make_mlp(self.cfg, self._lr, self.seed, self.scale)
+        self._lr, self._epochs = split_mlp_candidate(frozen_lr, self.cfg)
+        self.model = make_mlp(self.cfg, self._lr, self.seed, self.scale,
+                              max_iter=self._epochs)
         self.model.fit(M, np.asarray(y, float).ravel())
         return self
 
@@ -304,21 +312,23 @@ class MLPHead(Head):
     def _select_on_val(self, M, y, val):
         """Shared-component path: the GIAA head is fit on the training group
         and scored on the validation group, the same rule select_alpha_on_val
-        applies to the ridge GIAA head."""
+        applies to the ridge GIAA head. The candidate is an (lr, epochs) pair,
+        the same grid the personal head is selected over."""
         Mv, yv = val
-        grid = np.asarray(self.cfg.mlp_lr_grid, float)
+        yr = np.asarray(y, float).ravel()
+        yvr = np.asarray(yv, float).ravel()
+        grid = mlp_pair_grid(self.cfg)
         mses = np.array([
-            np.mean((make_mlp(self.cfg, lr, self.seed, self.scale)
-                     .fit(M, np.asarray(y, float).ravel()).predict(Mv)
-                     - np.asarray(yv, float).ravel()) ** 2)
-            for lr in grid])
-        chosen = conservative_lr(grid, mses)
+            np.mean((make_mlp(self.cfg, lr, self.seed, self.scale,
+                              max_iter=ep).fit(M, yr).predict(Mv) - yvr) ** 2)
+            for lr, ep in grid])
+        chosen = conservative_pair(grid, mses)
         selection_log.note("population_head", "giaa_mlp", "val_mse",
-                           [(lr, self.cfg.mlp_alpha) for lr in grid],
-                           mses, (chosen, self.cfg.mlp_alpha),
-                           lower_is_better=True,
-                           head="mlp", n_val_scored=len(np.asarray(yv)),
-                           n_val_kind="images")
+                           grid, mses, chosen,
+                           lower_is_better=True, axis2="epochs",
+                           head="mlp", n_val_scored=len(yvr),
+                           n_val_kind="images",
+                           extra_note=f"alpha={self.cfg.mlp_alpha} (fixed)")
         return chosen
 
     def predict(self, M):
@@ -328,11 +338,56 @@ class MLPHead(Head):
     def lr_(self) -> float:
         return float(self._lr)
 
+    @property
+    def epochs_(self) -> float:
+        """The budget this head was given, which is now a selected value
+        rather than a constant. n_iter_ reports what it actually spent; the
+        two agree because neither stopping rule is active."""
+        return float(self._epochs)
+
 
 def mlp_iterations(model) -> float:
     """Epochs the fitted MLP ran, through the scaler pipeline if there is one."""
     net = model[-1] if hasattr(model, "__getitem__") else model
     return float(getattr(net, "n_iter_", np.nan))
+
+
+def mlp_pair_grid(cfg) -> list[tuple[float, int]]:
+    """The MLP candidate set: every (learning rate, epoch budget) pair.
+
+    Ordered rate-major and ascending on both axes, so the lexicographic
+    tie-break in conservative_pair lands on the smallest step and the
+    shortest budget among candidates the validation group cannot tell apart.
+    """
+    return [(float(lr), int(ep))
+            for lr in sorted(float(x) for x in cfg.mlp_lr_grid)
+            for ep in sorted(int(x) for x in cfg.mlp_epoch_grid)]
+
+
+def split_mlp_candidate(c, cfg) -> tuple[float, int]:
+    """(lr, epochs) from either form of frozen value."""
+    if isinstance(c, (tuple, list, np.ndarray)):
+        lr, ep = c
+        return float(lr), int(ep)
+    return float(c), int(cfg.mlp_max_iter)
+
+
+def conservative_pair(grid, scores, lower_is_better: bool = True):
+    """Pick the (lr, epochs) pair, breaking a tie toward the least fitting.
+
+    Same idea as conservative_lr and the opposite direction to
+    select_alpha_on_val, for the same reason: among candidates the validation
+    group cannot separate, take the one that moves the weights least. For a
+    pair that means the smallest rate first and then the shortest budget,
+    which is what taking the lexicographic minimum of an ascending grid does.
+    """
+    scores = np.asarray(scores, float)
+    if lower_is_better:
+        tied = scores <= np.nanmin(scores) * (1.0 + ALPHA_TIE_RTOL)
+    else:
+        best = np.nanmax(scores)
+        tied = scores >= best - abs(best) * ALPHA_TIE_RTOL
+    return min(g for g, t in zip(grid, tied) if t)
 
 
 def conservative_lr(grid, scores, lower_is_better: bool = True) -> float:
@@ -366,7 +421,7 @@ def head_grid(kind: str, cfg):
     if kind in ("lasso", "elastic"):
         return cfg.sparse_alphas
     if kind == "mlp":
-        return cfg.mlp_lr_grid
+        return mlp_pair_grid(cfg)
     raise KeyError(f"unknown head '{kind}' (have: ridge, lasso, elastic, mlp)")
 
 

@@ -365,7 +365,10 @@ class Pipeline:
         """
         cfg = self.cfg
         is_alpha = kind in ALPHA_HEADS
-        cands = [float(c) for c in head_grid(kind, cfg)]
+        # a penalty is one number; an MLP candidate is an (lr, epochs) pair.
+        # Both are hashable, so one scoring loop carries both.
+        cands = ([float(c) for c in head_grid(kind, cfg)] if is_alpha
+                 else [(float(lr), int(ep)) for lr, ep in head_grid(kind, cfg)])
         scores = {c: [] for c in cands}
 
         for unit in self.iter_units(fold, domain, feats, n_train=n_train,
@@ -386,21 +389,24 @@ class Pipeline:
         best = max(means.values())
         tied = [c for c, s in means.items() if s >= best - abs(best) * ALPHA_TIE_RTOL]
         # same tie-break direction as select_alpha_on_val for a penalty --
-        # the strongest, i.e. the more regularized model. A learning rate is
-        # conservative in the other direction, so the smallest step wins.
+        # the strongest, i.e. the more regularized model. An MLP candidate is
+        # conservative in the other direction, so among tied pairs the
+        # smallest step and then the shortest budget wins, which is what the
+        # lexicographic minimum of an ascending grid gives.
         chosen = max(tied) if is_alpha else min(tied)
         n_units = len(next(iter(scores.values()))) if scores else 0
-        log_cands = (cands if is_alpha
-                     else [(c, cfg.mlp_alpha) for c in cands])
-        log_chosen = chosen if is_alpha else (chosen, cfg.mlp_alpha)
+        note = f"variant={variant} n_train={n_train}"
+        if not is_alpha:
+            note += f" alpha={cfg.mlp_alpha} (fixed)"
         selection_log.note(
             "stage2_personal", f"personal_{kind}", "val_srocc_mean",
-            log_cands, [means[c] for c in cands], log_chosen,
+            cands, [means[c] for c in cands], chosen,
             lower_is_better=False,
+            axis2="alpha" if is_alpha else "epochs",
             mediator=mediator_name, head=kind,
             n_val_scored=n_units, n_val_kind="user_units",
             n_val_users=len(fold.val_users),
-            extra_note=f"variant={variant} n_train={n_train}")
+            extra_note=note)
         return chosen
 
     def _eval_fold_domain(self, fold_index: int, dom: str,
@@ -542,9 +548,15 @@ class Pipeline:
                              **evaluate(unit.y_eval, p)})
 
         for (mname, h), d in diag.items():
-            lr, alpha = ((frozen[(mname, h)], cfg.mlp_alpha)
-                         if h not in ALPHA_HEADS
-                         else (None, frozen[(mname, h)]))
+            if h in ALPHA_HEADS:
+                lr, epochs, alpha = None, None, frozen[(mname, h)]
+            else:
+                # the frozen MLP value is an (lr, epochs) pair now, so the
+                # diagnostic row has to be given both rather than dropping
+                # the pair into the lr column
+                from src.modeling.heads import split_mlp_candidate
+                lr, epochs = split_mlp_candidate(frozen[(mname, h)], cfg)
+                alpha = cfg.mlp_alpha
             for name, vals, note_ in (
                     ("n_units", [len(d["n_iter"])], None),
                     ("mediator_width", d["width"], None),
@@ -559,7 +571,8 @@ class Pipeline:
                     selection_log.note_fit(
                         "stage2_personal", f"personal_{h}", name,
                         float(np.mean(vals)), mediator=mname, head=h,
-                        lr=lr, alpha=alpha, extra_note=note_)
+                        lr=lr, alpha=alpha, epochs=epochs,
+                        extra_note=note_)
         return rows
 
     def run_grid(self, mediators: list[str], heads: list[str],

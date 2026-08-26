@@ -118,8 +118,19 @@ class Config:
     # optimum is. Half-decade steps from 1e-4 to 1e1 leave the selector
     # somewhere to land. The `edge` column of selection*.csv says whether it
     # did.
-    mlp_lr_grid: tuple = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2,
-                          3e-2, 1e-1, 3e-1, 1e0, 3e0, 1e1)
+    # Two axes, both selected on the validation user group. The rate
+    # sets how big a step is, the budget sets how many steps are taken.
+    # Before the budget was selectable the rate had to stand in for it,
+    # which is why the old grid ran to 1e1 and why the personal head
+    # still ended up pinned at the bottom of it. With the budget on its
+    # own axis the rate only has to cover the range the shared
+    # components actually select in (1e-3 to 3e-2 in all 45 of their
+    # selections), and 1e-4 is kept below that as a floor so the
+    # at_grid_edge flag stays able to report a problem.
+    mlp_lr_grid: tuple = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
+    # Epoch budgets. mlp_max_iter is the largest of these, so selecting
+    # the top of the grid reproduces the earlier fixed-budget model.
+    mlp_epoch_grid: tuple = (25, 50, 100, 200, 350, 500)
 
     # Joint Stage-1: L = MSE(score) + lam * MSE(concepts), as in Koh et al.
     # lam = 1 is their equal weighting and the default here.

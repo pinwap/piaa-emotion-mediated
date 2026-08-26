@@ -54,8 +54,11 @@ CONTEXT = ["experiment", "backbone", "variant", "n_train", "seed", "fold", "doma
 #: won (epochs run, support size). Mixing them without a flag would let a
 #: mean over `score` average a learning rate against an epoch count.
 SUBJECT = ["kind", "stage", "component", "mediator", "head"]
-#: the candidate itself -- one column per hyperparameter the project selects
-CANDIDATE = ["lr", "alpha"]
+#: the candidate itself -- one column per hyperparameter the project
+#: selects. A ridge candidate fills `alpha` only, an MLP candidate fills `lr`
+#: and `epochs`; the columns a candidate does not use stay NaN so a reader
+#: never has to know which head wrote the row to read the number correctly.
+CANDIDATE = ["lr", "alpha", "epochs"]
 #: how it was ranked and what came of it. n_val_scored is how many things the
 #: criterion averaged over and n_val_kind says what they were: user-units for
 #: the personal head (it averages SROCC per validation user), images for
@@ -102,7 +105,8 @@ def active() -> bool:
 
 def note(stage: str, component: str, criterion: str,
          candidates, scores, chosen, *,
-         lower_is_better: bool, mediator=None, head=None,
+         lower_is_better: bool, axis2: str = "alpha",
+         mediator=None, head=None,
          n_val_scored=None, n_val_kind=None, n_val_users=None,
          extra_note=None) -> None:
     """Record one selection: the whole grid, ranked, with the winner flagged.
@@ -141,18 +145,23 @@ def note(stage: str, component: str, criterion: str,
     margin = (float(abs(best - (rest.min() if lower_is_better else rest.max())))
               if rest.size else float("nan"))
 
-    edge = _edge(won, cands)
+    edge = _edge(won, cands, axis2)
     ctx = dict(_CONTEXT.get())
-    for (lr, alpha), s, r, t in zip(cands, scores, rank, tied):
+    for (lr, second), s, r, t in zip(cands, scores, rank, tied):
+        # the second axis is a weight decay for one head and an epoch budget
+        # for another, so it gets its own column either way and the unused
+        # one stays NaN. Reading `alpha` as epochs would misreport the log.
+        alpha = second if axis2 == "alpha" else float("nan")
+        epochs = second if axis2 == "epochs" else float("nan")
         buf.append({
             **{k: ctx.get(k) for k in CONTEXT},
             "kind": "selection",
             "stage": stage, "component": component,
             "mediator": mediator, "head": head,
-            "lr": lr, "alpha": alpha,
+            "lr": lr, "alpha": alpha, "epochs": epochs,
             "criterion": criterion, "score": float(s),
             "lower_is_better": bool(lower_is_better),
-            "selected": int(_same((lr, alpha), won)),
+            "selected": int(_same((lr, second), won)),
             "rank": int(r),
             "n_candidates": len(cands),
             "tie_size": tie_size,
@@ -167,7 +176,7 @@ def note(stage: str, component: str, criterion: str,
 
 
 def note_fit(stage: str, component: str, criterion: str, value, *,
-             mediator=None, head=None, lr=None, alpha=None,
+             mediator=None, head=None, lr=None, alpha=None, epochs=None,
              extra_note=None) -> None:
     """Record a single measured fact about a fitted model rather than a
     selection -- how many epochs the winner actually ran, how many test users
@@ -182,7 +191,7 @@ def note_fit(stage: str, component: str, criterion: str, value, *,
         "kind": "diagnostic",
         "stage": stage, "component": component,
         "mediator": mediator, "head": head,
-        "lr": lr, "alpha": alpha,
+        "lr": lr, "alpha": alpha, "epochs": epochs,
         "criterion": criterion,
         "score": float(value) if value is not None else float("nan"),
         "lower_is_better": None, "selected": 1, "rank": 1,
@@ -207,7 +216,7 @@ def _same(a, b) -> bool:
     return all((np.isnan(x) and np.isnan(y)) or x == y for x, y in zip(a, b))
 
 
-def _edge(won, cands) -> str:
+def _edge(won, cands, axis2: str = "alpha") -> str:
     """Which axis the winner ran out of grid on, and at which end --
     "alpha:max" means the strongest weight decay on offer won, so the grid
     stopped before the optimum did and the number is a limit, not a choice.
@@ -217,7 +226,7 @@ def _edge(won, cands) -> str:
     always. The end is what carries the warning.
     """
     out = []
-    for i, axis in ((0, "lr"), (1, "alpha")):
+    for i, axis in ((0, "lr"), (1, axis2)):
         vals = sorted({c[i] for c in cands if not np.isnan(c[i])})
         if len(vals) < 2 or np.isnan(won[i]):
             continue

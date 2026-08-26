@@ -54,7 +54,7 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("experiment",
                     choices=["table1", "backbone", "efficiency", "faithfulness",
-                            "formula_weights",
+                            "formula_weights", "formulas",
                             "stage1_emotion_acc",
                             "stage2_emotion_importance", "fig_faithfulness",
                             "fig_efficiency", "verify"])
@@ -161,6 +161,14 @@ def main(argv=None) -> int:
     elif args.experiment == "faithfulness":
         from src.experiments import faithfulness
         faithfulness.run(cfg, pipe)
+    elif args.experiment == "formulas":
+        from src.experiments import formulas
+        formulas.run(
+            cfg, pipe, variant=args.stage2 or "C",
+            n_train=int(args.n_train.split(",")[-1]),
+            mediator=(args.mediators.split(",")[0]
+                      if args.mediators else "emotion"),
+            seed=int(str(args.seed).split(",")[0]) if args.seed else 0)
     elif args.experiment == "formula_weights":
         from src.experiments import formula_weights
         formula_weights.run(
