@@ -15,9 +15,8 @@ the numbers in the tables.
 
 That works because the personal head is linear. Under the population anchor,
 
-    y_hat(image) = y_pop(image) + z(image) . delta + b            (variant C)
-    y_hat(image) = z(image) . (w_pop + delta) + b_pop + b         (variant B)
-    y_hat(image) = z(image) . w + b                               (plain)
+    y_hat(image) = y_pop(image) + z(image) . delta + b            (population anchor)
+    y_hat(image) = z(image) . w + b                               (plain unanchored)
 
 so a prediction, an ablated prediction, or one user's formula applied to
 another user's images is arithmetic over saved numbers, not a refit.
@@ -26,14 +25,14 @@ What the three weight vectors mean, because they are easy to confuse
 -------------------------------------------------------------------
 w_pop     the population's own mapping from the seven emotions to a score,
           fitted on the pooled training group in the training group's units.
-delta     what variant C fits: this user's departure from that mapping. It is
+delta     what population anchor fits: this user's departure from that mapping. It is
           a residual fit, so ridge shrinks it toward zero and it is close to
           symmetric about zero. The share of users with a positive delta is
           therefore near 50% for every emotion whether or not people actually
           disagree, and reading that share as "half of people like sad images"
           reads the anchor, not the people.
 w_total   w_pop + delta, the absolute personal mapping. This is literally the
-          formula variant B fits and predicts with. Under variant C the
+          formula variant B fits and predicts with. Under population anchor the
           prediction uses y_pop on raw features instead, which carries more
           information than z . w_pop can, so w_total is the emotion-space
           reading of the same person rather than a term in C's prediction.
@@ -42,19 +41,18 @@ w_total   w_pop + delta, the absolute personal mapping. This is literally the
 
 Outputs, all in output/formulas/:
 
-    population_formula.csv   per (fold, domain): w_pop, b_pop, alpha
-    user_formula.csv         per unit: delta, w_pop, w_total, bias, alpha,
-                             accuracy, and the support-set mean of z, which is
-                             what an ablation holds an emotion at
-    user_formula_gt.csv      per unit: the same head fitted on the emotions the
+    population_formula.csv   per (fold, domain) - 15 rows: w_pop, b_pop, alpha
+    user_formula.csv         per unit - 387 rows:
+                                delta, w_pop, w_total, bias, alpha, accuracy, and the support-set mean of z,
+                                which is what an ablation holds an emotion at
+    user_formula_gt.csv     per unit - 387 rows: the same head fitted on the emotions the
                              user actually reported, which is the ceiling the
                              predicted-emotion formula is measured against
-    per_image.csv            per (unit, evaluation image): the true score, the
-                             population prediction, the personal prediction,
-                             and each emotion predicted, standardised, and as
-                             its contribution
-    stage1_accuracy.csv      per (fold, domain, emotion): how well Stage-1
-                             predicts the population-mean emotion
+    per_image.csv           per (unit, evaluation image) ~19350 data rows:
+                                the true score, the population prediction, the personal prediction,
+                                and each emotion predicted, standardised, and as its contribution
+    stage1_accuracy.csv     per (fold, domain, emotion) - 105 rows:
+                                how well Stage-1 predicts the population-mean emotion
 
 Usage:
     uv run main.py formulas --backbone qwen8b --stage2 C --n-train 100
@@ -80,7 +78,7 @@ def _fit_predict(head, M_tr, y_tr, M_ev, X_tr, X_ev, alpha):
     head.fit(M_tr, y_tr, frozen_alpha=alpha)
     return head.predict(M_ev)
 
-
+# extract bias (intercept) from head, Scikit-learn's RidgeCV have it as head._b, while our own heads have it as head._pipe[-1].intercept_
 def _intercept(head) -> float:
     if hasattr(head, "_b"):
         return float(head._b)
@@ -106,7 +104,7 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
             Xg, Eg, yg, meds = pipeline.shared_context(fold, dom, feats,
                                                        seed=seed, want=want)
             med = meds[mediator]
-            Xv, _, yv = pipeline.val_data(fold, dom, feats)
+            Xv, _, yv = pipeline.val_data(fold, dom, feats) #tuning set, for alpha selection
             pop_ridge = make_head("ridge", cfg).fit(Xg, yg, val=(Xv, yv))
 
             # ---- Stage-1 accuracy, on the images the test users rated ------
@@ -125,7 +123,7 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
 
             # ---- the population's own formula, in emotion space -------------
             anchor = None
-            if variant in ("C") and mediator in set(cfg.stage2_variant_mediators):
+            if variant == "C" and mediator in set(cfg.stage2_variant_mediators):
                 anchor = pipeline.pop_anchor(med, Xg, yg, Xv, yv,
                                              mediator_name=mediator)
             scaler = anchor[0] if anchor is not None else None
@@ -144,10 +142,11 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
                 mediator_name=mediator)
 
             for unit in pipeline.iter_units(fold, dom, feats, n_train=n):
+                # extract the features for this unit's support set and evaluation set, and transform them into the mediator space
                 M_tr = med.transform(unit.X_train)
                 M_ev = med.transform(unit.X_eval)
-                head = pipeline.make_personal("ridge", unit.user_id, variant,
-                                              anchor, pop_ridge)
+                
+                head = pipeline.make_personal("ridge", unit.user_id, variant, anchor, pop_ridge)
                 p = _fit_predict(head, M_tr, unit.y_train, M_ev,
                                  unit.X_train, unit.X_eval, alpha)
                 p_pop = np.asarray(pop_ridge.predict(unit.X_eval), float).ravel()
@@ -186,11 +185,7 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
                     "y_sd": float(np.std(unit.y_eval)),
                 })
 
-                # ---- the same head on the emotions the user reported --------
-                # No anchor here and none possible: the ground-truth emotions
-                # are the user's own, so there is no population model of them
-                # to be anchored on. This is the ceiling row, not a condition
-                # being compared, and it is labelled that way downstream.
+                # ---- the ceiling row: the same head on the emotions the user reported --------
                 gt_head = make_head("ridge", cfg).fit(unit.E_train, unit.y_train)
                 p_gt = gt_head.predict(unit.E_eval)
                 gt_rows.append({
@@ -217,6 +212,7 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
                     })
         print(f"  fold {fold.index} done ({len(unit_rows)} units)", flush=True)
 
+    # ----------------------------------------------------------
     units = pd.DataFrame(unit_rows)
     frames = {"population_formula.csv": pd.DataFrame(pop_rows),
               "user_formula.csv": units,
