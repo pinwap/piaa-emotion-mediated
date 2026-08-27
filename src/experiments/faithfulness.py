@@ -11,14 +11,15 @@ Because the head is linear, every check is arithmetic over saved numbers:
 
   1. Ablation. Hold one emotion at its support-set mean and see how much
      accuracy drops. Under the anchor the prediction is
-     y_pop + z . delta + b, so holding emotion j at zbar_j gives
+     \sum_j (w_tot_j * z_j) + bias_tot, so holding emotion j at zbar_j gives
 
-         y_ablate = y_pred - delta_j * (z_j - zbar_j)
+         y_ablate = y_pred - w_tot_j * (z_j - zbar_j)
 
-     exactly, with no refit. Dropping the top-weighted emotion should hurt
-     more than dropping the bottom-weighted one, or the weights are decoration.
+     exactly, with no refit. Dropping the top-weighted emotion (max |w_tot|) should hurt
+     more than dropping the bottom-weighted one (min |w_tot|), 
+     proving that the total emotion weights faithfully explain the score.
 
-  2. Formula swap. Score a user with their own formula, with the mean of the
+  2. Formula swap. Score a user with their own formula, with the mean of the <N_swap> 
      other users' formulas, and with individual other users' formulas. "Own"
      should win if formulas are really personal. A swap is only meaningful
      inside one fold and one domain, because that is the only place two
@@ -89,7 +90,7 @@ def run(cfg, pipeline=None):
     return abl, swap, align
 
 
-# ------------------------------------------------------------------ 1. ablation
+# ------------------------------------------------------------------ 1. concept ablation
 
 def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -100,11 +101,12 @@ def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
         u = u_idx.loc[key]
         y = g["y_true"].to_numpy(float)
         p = g["y_pred"].to_numpy(float)
-        w = np.array([float(u[f"{e}_w"]) for e in CORE7])
+        w = np.array([float(u[f"{e}_wtot"]) for e in CORE7])
         Z = g[[f"{e}_z" for e in CORE7]].to_numpy(float)
         zbar = np.array([float(u[f"{e}_zbar"]) for e in CORE7])
 
         # holding emotion j at zbar_j removes exactly one term
+        # add dimension -> [50, 7] and broadcast -> matrix [50, 7] for 50 test images x when cut emotion j
         held = p[:, None] - (Z - zbar[None, :]) * w[None, :]
 
         aj = int(np.abs(w).argmax())
@@ -116,6 +118,7 @@ def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
             full_srocc=srocc(y, p), full_plcc=plcc(y, p),
             top1_srocc=s[aj], top1_plcc=pl[aj],
             bottom1_srocc=s[bj], bottom1_plcc=pl[bj],
+            # average of srocc when cut every each emotion
             avg1_srocc=float(np.mean(s)), avg1_plcc=float(np.mean(pl)),
             top_emotion=CORE7[aj], bottom_emotion=CORE7[bj]))
     return pd.DataFrame(rows)
@@ -183,9 +186,9 @@ def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFra
         if key not in u_idx.index:
             continue
         u = u_idx.loc[key]
-        w = np.array([float(u[f"{e}_w"]) for e in CORE7])
+        w = np.array([float(u[f"{e}_wtot"]) for e in CORE7])
         y = g["y_true"].to_numpy(float)
-        resid = y - g["y_pop"].to_numpy(float)
+        # resid = y - g["y_pop"].to_numpy(float)
 
         def emp_against(target):
             out = []
@@ -195,7 +198,7 @@ def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFra
                            if z.std() > 0 and target.std() > 0 else np.nan)
             return np.asarray(out, float)
 
-        emp = emp_against(resid)
+        emp = emp_against(y)
         ok = np.isfinite(emp)
         if ok.sum() < 3:
             continue
@@ -229,6 +232,7 @@ def summarize_ablation(b: pd.DataFrame) -> pd.DataFrame:
             r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
             r[f"{m}_sem"] = sem(b[f"{k}_{m}"])
             r[f"{m}_drop"] = float(b[f"full_{m}"].mean() - b[f"{k}_{m}"].mean())
+            # paired test to full 
             p = (wilcoxon_paired(b[f"full_{m}"], b[f"{k}_{m}"])
                  if k != "full" else np.nan)
             r[f"{m}_p_vs_full"] = p
@@ -261,9 +265,12 @@ def summarize_align(b: pd.DataFrame) -> pd.DataFrame:
                  pct_positive=100 * float((d["spearman"] > 0).mean()))
         for m in ("spearman", "pearson"):
             mean, sd = mean_sd(d[m])
+            s_sem = sem(d[m])
             p = wilcoxon_paired(d[m], np.zeros(len(d)))
             r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
-            r[f"{m}_sem"] = sem(d[m])
+            r[f"{m}_sem"] = s_sem
+            r[f"{m}_ci95_lower"] = float(mean - 1.96 * s_sem)
+            r[f"{m}_ci95_upper"] = float(mean + 1.96 * s_sem)
             r[f"{m}_p"] = p
             r[f"{m}_sig"] = bool(np.isfinite(p) and p < 0.05)
         rows.append(r)

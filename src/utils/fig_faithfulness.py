@@ -1,5 +1,4 @@
 """Faithfulness figure -- 2 Panels (Formula swap & Concept ablation)
-Matching the exact paper theme in src.utils.plots with hatch pattern for Plain
 """
 from __future__ import annotations
 
@@ -50,16 +49,15 @@ def panel_swap(ax, swap_anc: pd.DataFrame, swap_pln: pd.DataFrame, err: str):
     # Draw 6 bars per x-location:
     ax.bar(x - 2.5 * width, m_own_a, width, yerr=e_own_a, capsize=2, label="Own (Anchor)",
            color=BLUE, edgecolor="white", linewidth=0.4)
-    ax.bar(x - 1.5 * width, m_own_p, width, yerr=e_own_p, capsize=2, label="Own (Plain)",
+    ax.bar(x - 1.5 * width, m_pop_a, width, yerr=e_pop_a, capsize=2, label="Pop (Anchor)",
+               color="#5B9BD5", edgecolor="white", linewidth=0.4)
+    ax.bar(x - 0.5 * width, m_oth_a, width, yerr=e_oth_a, capsize=2, label="Other (Anchor)",
+               color="#AFC9E8", edgecolor="white", linewidth=0.4)
+
+    ax.bar(x + 0.5 * width, m_own_p, width, yerr=e_own_p, capsize=2, label="Own (Plain)",
            color=GREY, hatch="///", edgecolor="white", linewidth=0.4)
-
-    ax.bar(x - 0.5 * width, m_pop_a, width, yerr=e_pop_a, capsize=2, label="Pop (Anchor)",
-           color="#5B9BD5", edgecolor="white", linewidth=0.4)
-    ax.bar(x + 0.5 * width, m_pop_p, width, yerr=e_pop_p, capsize=2, label="Pop (Plain)",
+    ax.bar(x + 1.5 * width, m_pop_p, width, yerr=e_pop_p, capsize=2, label="Pop (Plain)",
            color="#B0B0B0", hatch="///", edgecolor="white", linewidth=0.4)
-
-    ax.bar(x + 1.5 * width, m_oth_a, width, yerr=e_oth_a, capsize=2, label="Other (Anchor)",
-           color="#AFC9E8", edgecolor="white", linewidth=0.4)
     ax.bar(x + 2.5 * width, m_oth_p, width, yerr=e_oth_p, capsize=2, label="Other (Plain)",
            color="#D0D0D0", hatch="///", edgecolor="white", linewidth=0.4)
 
@@ -67,23 +65,26 @@ def panel_swap(ax, swap_anc: pd.DataFrame, swap_pln: pd.DataFrame, err: str):
     ax.set_xticklabels(XLABELS, fontsize=7)
     # ax.set_ylabel("Spearman SROCC")
     ax.set_title("(a) Formula Swap (Personalization)", fontsize=8.5)
-    ax.set_ylim(0.15, 0.58)
+    ax.set_ylim(0.25, 0.58)
     grid(ax)
-    ax.legend(fontsize=6, loc="upper right", ncol=3, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.1))
+    handles, labels = ax.get_legend_handles_labels()
+    order = 0, 3, 1, 4, 2, 5
+    ax.legend([handles[i] for i in order], [labels[i] for i in order], fontsize=6, loc="upper right", ncol=3, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.1))
 
 
 def panel_ablation(ax, abl: pd.DataFrame, err: str):
+    full_col = "full_srocc" if "full_srocc" in abl.columns else "base_srocc"
     series = {
-        "Full Model": grouped(abl, "base_srocc", err),
-        "w/o Bottom-1": grouped(abl, "bottom1_srocc", err),
-        "w/o Avg-1": grouped(abl, "avg1_srocc", err),
-        "w/o Top-1": grouped(abl, "top1_srocc", err),
+        "Full Model": grouped(abl, full_col, err),
+        "w/o Bottom": grouped(abl, "bottom1_srocc", err),
+        "w/o Avg": grouped(abl, "avg1_srocc", err),
+        "w/o Top": grouped(abl, "top1_srocc", err),
     }
     colors = {
         "Full Model": BLUE,
-        "w/o Bottom-1": "#E8B87A",
-        "w/o Avg-1": AMBER,
-        "w/o Top-1": "#8C4A0F"
+        "w/o Bottom": "#E8B87A",
+        "w/o Avg": AMBER,
+        "w/o Top": "#8C4A0F"
     }
 
     n = len(series)
@@ -97,7 +98,7 @@ def panel_ablation(ax, abl: pd.DataFrame, err: str):
     ax.set_xticks(x)
     ax.set_xticklabels(XLABELS, fontsize=7)
     ax.set_title("(b) Concept Ablation (Importance)", fontsize=8.5)
-    ax.set_ylim(0.15, 0.58)
+    ax.set_ylim(0.25, 0.58)
     grid(ax)
     ax.legend(fontsize=6, loc="upper right", ncol=4, frameon=False, handlelength=1.1, columnspacing=0.6, bbox_to_anchor=(1.0, 1.07))
 
@@ -106,8 +107,8 @@ def run(cfg, err: str = "sem"):
     setup()
     out_dir = cfg.output_dir / "faithfulness"
     abl = pd.read_csv(out_dir / "ablation.csv")
-    swap_pln = pd.read_csv(out_dir / "formula_swap.csv")
-    swap_anc = pd.read_csv(out_dir / "formula_swap_anchored_C.csv")
+    swap_anc = pd.read_csv(out_dir / "formula_swap.csv")
+    swap_pln = pd.read_csv(out_dir / "formula_swap_unanchored.csv")
 
     fig, axes = plt.subplots(2, 1, figsize=(COL_WIDTH, 3.4), sharex=True)
     panel_swap(axes[0], swap_anc, swap_pln, err)
@@ -119,9 +120,6 @@ def run(cfg, err: str = "sem"):
     fig.subplots_adjust(hspace=0.28, left=0.07, right=0.98, top=0.90, bottom=0.22)
     
     save(fig, cfg.figures_dir / f"fig_faithfulness_{err}")
-    # Also save copy directly to paper figures
-    paper_dir = Path(r"d:\Pin\STUDY\0CU\exchange\JAIST Internship2025\PIAA_project\paper\final\figures")
-    save(fig, paper_dir / f"fig_faithfulness_{err}")
 
 if __name__ == "__main__":
     import sys

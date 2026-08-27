@@ -125,7 +125,7 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
 
             # ---- the population's own formula, in emotion space -------------
             anchor = None
-            if variant in ("B", "C") and mediator in set(cfg.stage2_variant_mediators):
+            if variant in ("C") and mediator in set(cfg.stage2_variant_mediators):
                 anchor = pipeline.pop_anchor(med, Xg, yg, Xv, yv,
                                              mediator_name=mediator)
             scaler = anchor[0] if anchor is not None else None
