@@ -127,10 +127,22 @@ class Config:
     # components actually select in (1e-3 to 3e-2 in all 45 of their
     # selections), and 1e-4 is kept below that as a floor so the
     # at_grid_edge flag stays able to report a problem.
-    mlp_lr_grid: tuple = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
-    # Epoch budgets. mlp_max_iter is the largest of these, so selecting
-    # the top of the grid reproduces the earlier fixed-budget model.
-    mlp_epoch_grid: tuple = (25, 50, 100, 200, 350, 500)
+    # THE GRID THE REPORTED RESULTS WERE PRODUCED WITH. Eleven half-decade
+    # steps, 1e-4 to 1e1, exactly as recorded in the run's own snapshot at
+    # output/thundering_lobster_modal_all_runs/lr/*/config.json. Do not
+    # narrow this without re-running: every MLP row in Table 1 (and so
+    # Tables 2 and 3, which read the same output/raw_all_final.csv) was
+    # selected over these eleven values.
+    mlp_lr_grid: tuple = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2,
+                          3e-2, 1e-1, 3e-1, 1e0, 3e0, 1e1)
+    # Epoch budget, FIXED rather than selected. A single value here makes
+    # mlp_pair_grid degenerate to the learning rate alone at a constant
+    # cfg.mlp_max_iter budget, which is the protocol the reported results
+    # used: rate chosen on the validation user group, budget stated in
+    # advance. A multi-value grid turns the epoch budget into a second
+    # selected axis -- a different (and un-run) experiment, so it stays a
+    # deliberate one-line edit rather than the default.
+    mlp_epoch_grid: tuple = (500,)
 
     # Joint Stage-1: L = MSE(score) + lam * MSE(concepts), as in Koh et al.
     # lam = 1 is their equal weighting and the default here.

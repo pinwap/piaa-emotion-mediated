@@ -120,9 +120,8 @@ def run(cfg, err: str = "sem"):
     
     save(fig, cfg.figures_dir / f"fig_faithfulness_{err}")
     # Also save copy directly to paper figures
-    paper_dir = Path(r"d:\Pin\STUDY\0CU\แลกเปลี่ยน\JAIST Internship2025\PIAA_project\paper\final\figures")
+    paper_dir = Path(r"d:\Pin\STUDY\0CU\exchange\JAIST Internship2025\PIAA_project\paper\final\figures")
     save(fig, paper_dir / f"fig_faithfulness_{err}")
-
 
 if __name__ == "__main__":
     import sys

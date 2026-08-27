@@ -23,7 +23,7 @@ from src.utils.suite_engine import Suite, SuiteStep
 #: every mediator, in one command. They are not split across steps because
 #: Pipeline.shared_context fits them together per (fold, domain) -- one step
 #: per mediator would refit Stage-1 seven times over for the same numbers.
-MEDIATORS = ("identity,random,shuffled,pca,emotion,"
+MEDIATORS = ("identity,random,pca,emotion,"
              "emotion_mlp,emotion_joint")
 
 

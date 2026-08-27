@@ -16,5 +16,28 @@ features/*
 docs/*_THAI.md
 notebooks/*
 no_use/*
-# Quarantined results and features: kept for reference, never read by code
-no_use/
+
+# ---------------------------------------------------------------------------
+# Results excluded from the public repo. Every table in the paper is still
+# fully reproducible from what remains: output/raw_all_final.csv carries a
+# source_file column, and all 22 per-run files it names are kept.
+# ---------------------------------------------------------------------------
+
+# Aggregate raw_all.csv dumps, superseded by output/raw_all_final.csv.
+# The swap-no_anchor one is 100.1 MB and exceeds GitHub's hard per-file
+# limit outright, so it cannot be pushed even if we wanted it.
+output/norm-1/raw_all.csv
+output/norm-2/raw_all.csv
+output/swap-no_anchor-faithfulness/raw_all.csv
+output/raw_all.csv
+
+# 22.8 MB superset of output/formulas/*.csv; no table or figure reads it.
+output/formulas/all_units_full.csv
+
+# Superseded MLP control run (3-value lr grid, 1e-3/3e-3/1e-2). Verified:
+# not one row of output/raw_all_final.csv traces to it.
+output/logical_capybara_modal_all_runs/
+
+# scratch
+_to_delete/
+*.STALE-SAFE-TO-DELETE

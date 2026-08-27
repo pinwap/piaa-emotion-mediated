@@ -1,0 +1,35 @@
+[data] first-session only: 87836 -> 83327 rows, dropped 4509 duplicates
+  fold 0 done (78 units)
+  fold 1 done (144 units)
+  fold 2 done (213 units)
+  fold 3 done (303 units)
+  fold 4 done (387 units)
+
+387 units, 19350 image rows -> D:\Pin\STUDY\0CU\exchange\JAIST Internship2025\PUBLISH\piaa-emotion-mediated\output\formulas
+  population_formula.csv       15 rows
+  user_formula.csv            387 rows
+  user_formula_gt.csv         387 rows
+  per_image.csv             19350 rows
+  stage1_accuracy.csv         105 rows
+
+mean SROCC 0.4592  (population 0.4391)
+
+per-domain mean SROCC
+            srocc  pop_srocc  gain_srocc
+domain                                  
+art        0.4957     0.4768      0.0189
+fashion    0.3857     0.3718      0.0139
+landscape  0.4963     0.4687      0.0276
+
+share of users with a positive coefficient
+              delta_mean  delta_pos%  w_pop_mean  w_total_pos%  gt_pos%
+impressed           0.01       51.16        0.26         92.51    95.61
+intellectual       -0.00       49.61       -0.00         48.32    80.10
+motivated           0.01       42.12        0.05         65.63    81.65
+amused             -0.02       46.25        0.16         87.08    98.45
+nostalgic          -0.01       45.74        0.01         48.06    71.32
+sad                -0.00       45.48        0.02         54.78    47.29
+distasteful        -0.01       48.84       -0.16         16.28     8.27
+
+delta sits near 50% for every emotion because a residual fit is centred on zero.
+w_total and gt are the columns whose sign says whether someone weights an emotion up.

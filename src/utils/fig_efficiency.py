@@ -2,7 +2,6 @@
 
 from output/efficiency/<backbone>/raw.csv 
 
-err="sd"  -> band is +/- 1 sample sd across user-domain units
 err="sem" -> band is +/- 1 standard error of the mean (sd / sqrt(n))
 
 Output: figures_dir/fig_efficiency_{sd,sem}.pdf
@@ -18,7 +17,7 @@ METHODS = ("pop_zero", "direct", "hybrid")
 
 STYLE = {
     "pop_zero": dict(color=AMBER, ls=":", marker=None, label="Population (0 user params)"),
-    "direct":   dict(color=GREY, ls="--", marker="^", label="Direct (512 params)"),
+    "direct":   dict(color=GREY, ls="--", marker="^", label="Direct (4096 params)"),
     "hybrid":   dict(color=BLUE, ls="-", marker="o", label="Hybrid (7 params)"),
 }
 
@@ -104,20 +103,20 @@ def run(cfg, err: str = "sem", domain_split: bool = False):
         titles = ["Artwork", "Fashion", "Landscape"]
         # sharey too: with free y-limits fashion looks much closer to the
         # other domains than it is, which is the opposite of the point
-        fig, axes = plt.subplots(2, 4, figsize=(7.0, 3.4), sharex=True, sharey=True)
+        fig, axes = plt.subplots(1, 4, figsize=(7.0, 1.85), sharex=True, sharey=True)
         for col, (dom, title) in enumerate(zip(domains, titles)):
-            plot_panel(axes[0, col], df, "srocc", n_list, err, domain=dom, annotate_crossover=True)
-            axes[0, col].set_title(title, fontsize=9)
-            plot_panel(axes[1, col], df, "plcc", n_list, err, domain=dom, annotate_crossover=True)
-            axes[1, col].set_xlabel("ratings/user", fontsize=7.5)
-        plot_panel(axes[0, 3], df, "srocc", n_list, err, annotate_crossover=True)
-        axes[0, 3].set_title("Average", fontsize=9)
-        plot_panel(axes[1, 3], df, "plcc", n_list, err, annotate_crossover=True)
-        axes[1, 3].set_xlabel("ratings per user", fontsize=7.5)
+            plot_panel(axes[col], df, "srocc", n_list, err, domain=dom, annotate_crossover=True)
+            axes[col].set_title(title, fontsize=8.5)
+            # plot_panel(axes[1, col], df, "plcc", n_list, err, domain=dom, annotate_crossover=True)
+            axes[col].set_xlabel("ratings/user", fontsize=7.5)
+        plot_panel(axes[3], df, "srocc", n_list, err, annotate_crossover=True)
+        axes[3].set_title("Average", fontsize=8.5)
+        # plot_panel(axes[1, 3], df, "plcc", n_list, err, annotate_crossover=True)
+        axes[3].set_xlabel("ratings per user", fontsize=7.5)
         
-        axes[0, 0].set_ylabel("SROCC")
-        axes[1, 0].set_ylabel("PLCC")
-        axes[1, 0].legend(fontsize=6.5, loc="lower left")
+        axes[0].set_ylabel("SROCC")
+        # axes[1, 0].set_ylabel("PLCC")
+        axes[0].legend(fontsize=6.5, loc="lower left")
         fig.tight_layout()
         save(fig, cfg.figures_dir / f"fig_efficiency_domains_{err}")
     

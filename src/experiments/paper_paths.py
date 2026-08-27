@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-PAPER_ROOT = Path(r"D:\Pin\STUDY\0CU\แลกเปลี่ยน\JAIST Internship2025"
-                  r"\PIAA_project\paper\final")
+PAPER_ROOT = Path(r"D:\Pin\STUDY\0CU\exchange\JAIST Internship2025\PIAA_project\paper\final")
 TABLES = PAPER_ROOT / "tables"
 FIGURES = PAPER_ROOT / "figures"
 
