@@ -56,7 +56,8 @@ def main(argv=None) -> int:
                     choices=["table1", "backbone", "efficiency", "faithfulness",
                             "formula_weights", "formulas",
                             "stage1_emotion_acc",
-                            "stage2_emotion_importance", "fig_faithfulness",
+                            "stage2_emotion_importance", "gt_formula_matched",
+                            "fig_faithfulness",
                             "fig_efficiency", "verify"])
     ap.add_argument("--backbone", default="qwen8b", help="default: qwen8b")
     ap.add_argument("--backbones", default="clip,clip_ft,qwen4b,qwen8b")
@@ -183,6 +184,9 @@ def main(argv=None) -> int:
     elif args.experiment == "stage2_emotion_importance":
         from src.experiments import stage2_emotion_importance
         stage2_emotion_importance.run(cfg, pipe)
+    elif args.experiment == "gt_formula_matched":
+        from src.experiments import gt_formula_matched
+        gt_formula_matched.run(cfg, pipe, n_train=int(args.n_train.split(",")[-1]))
     elif args.experiment == "fig_faithfulness":
         from src.utils import fig_faithfulness
         fig_faithfulness.run(cfg, "sd")

@@ -75,7 +75,7 @@ def main() -> int:
                 if mean == best[(key, m)]:
                     body = r"\bm{" + body + "}"
                 cells.append(f"${body}$")
-        out.append(f"\textit{{{e.capitalize()}}} & " + " & ".join(cells) + r" \\")
+        out.append(rf"\textit{{{e.capitalize()}}} & " + " & ".join(cells) + r" \\")
 
     out += [r"\bottomrule", r"\end{tabular}"]
 
