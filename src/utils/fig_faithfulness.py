@@ -1,4 +1,4 @@
-"""Faithfulness figure -- 2 Panels (Formula swap & Concept ablation)
+"""Faithfulness figure -- formula swap, concept ablation, and image swap.
 """
 from __future__ import annotations
 
@@ -65,11 +65,11 @@ def panel_swap(ax, swap_anc: pd.DataFrame, swap_pln: pd.DataFrame, err: str):
     ax.set_xticklabels(XLABELS, fontsize=7)
     # ax.set_ylabel("Spearman SROCC")
     ax.set_title("(a) Formula Swap (Personalization)", fontsize=8.5)
-    ax.set_ylim(0.25, 0.58)
+    ax.set_ylim(0.28, 0.59)
     grid(ax)
     handles, labels = ax.get_legend_handles_labels()
     order = 0, 3, 1, 4, 2, 5
-    ax.legend([handles[i] for i in order], [labels[i] for i in order], fontsize=6, loc="upper right", ncol=3, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.1))
+    ax.legend([handles[i] for i in order], [labels[i] for i in order], fontsize=6, loc="upper right", ncol=3, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.16))
 
 
 def panel_ablation(ax, abl: pd.DataFrame, err: str):
@@ -97,10 +97,35 @@ def panel_ablation(ax, abl: pd.DataFrame, err: str):
 
     ax.set_xticks(x)
     ax.set_xticklabels(XLABELS, fontsize=7)
-    ax.set_title("(b) Concept Ablation (Importance)", fontsize=8.5)
-    ax.set_ylim(0.25, 0.58)
+    ax.set_title("(b) Concept Ablation (Importance)", fontsize=8.5, y=0.88)
+    ax.set_ylim(0.28, 0.58)
     grid(ax)
-    ax.legend(fontsize=6, loc="upper right", ncol=4, frameon=False, handlelength=1.1, columnspacing=0.6, bbox_to_anchor=(1.0, 1.07))
+    ax.legend(fontsize=6, loc="upper right", ncol=4, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.05))
+
+
+def panel_image_swap(ax, anchored: pd.DataFrame, err: str):
+    x = np.arange(len(XLABELS))
+    width = 0.125
+    series = [
+        ("Correct Image", anchored, "correct_srocc", BLUE),
+        ("No-Image", anchored, "no_image_srocc", "#5B9BD5"),
+        ("Swapped Image", anchored, "swapped_srocc", "#AFC9E8"),
+    ]
+    offsets = [-1.0, 0.0, 1.0]
+    for off, (label, frame, col, color) in zip(offsets, series):
+        means, errs = grouped(frame, col, err)
+        ax.bar(x + off * width, means, width, yerr=errs, capsize=2,
+               label=label, color=color, edgecolor="white", linewidth=0.4)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(XLABELS, fontsize=7)
+    # ax.set_ylabel("Spearman SROCC")
+    ax.set_title("(c) Image Swap (Stimulus Specificity)", fontsize=8.5, y=0.88)
+    ax.set_ylim(0.28, 0.58)
+    grid(ax)
+    ax.legend(fontsize=6, loc="upper right", ncol=3, frameon=False,
+              handlelength=0.8, columnspacing=0.6,
+              bbox_to_anchor=(1.0, 1.05))
 
 
 def run(cfg, err: str = "sem"):
@@ -109,14 +134,17 @@ def run(cfg, err: str = "sem"):
     abl = pd.read_csv(out_dir / "ablation.csv")
     swap_anc = pd.read_csv(out_dir / "formula_swap.csv")
     swap_pln = pd.read_csv(out_dir / "formula_swap_unanchored.csv")
+    image = pd.read_csv(out_dir / "image_swap.csv")
+    image_plain = pd.read_csv(out_dir / "image_swap_unanchored.csv")
 
-    fig, axes = plt.subplots(2, 1, figsize=(COL_WIDTH, 3.4), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(COL_WIDTH, 3.4), sharex=True)
     panel_swap(axes[0], swap_anc, swap_pln, err)
     panel_ablation(axes[1], abl, err)
+    panel_image_swap(axes[2], image, err)
     
     # Tight margins, minimal horizontal gap between panels
     # fig.tight_layout()
-    fig.supylabel("Spearman SROCC", fontsize=8, x=-0.05)
+    fig.supylabel("Spearman SROCC", fontsize=8, x=-0.054)
     fig.subplots_adjust(hspace=0.28, left=0.07, right=0.98, top=0.90, bottom=0.22)
     
     save(fig, cfg.figures_dir / f"fig_faithfulness_{err}")

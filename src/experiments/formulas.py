@@ -158,8 +158,16 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
                         f"mediator '{mediator}' is not seven-dimensional so "
                         f"the emotion labels would be wrong")
 
-                Z_tr = M_tr if scaler is None else scaler.transform(M_tr)
-                Z_ev = M_ev if scaler is None else scaler.transform(M_ev)
+                if scaler is None:
+                    # A plain RidgeHead owns its StandardScaler -> Z
+                    personal_scaler = head._pipe[0]
+                    Z_tr = personal_scaler.transform(M_tr)
+                    Z_ev = personal_scaler.transform(M_ev)
+                    formula_scaler = personal_scaler
+                else:
+                    Z_tr = scaler.transform(M_tr)
+                    Z_ev = scaler.transform(M_ev)
+                    formula_scaler = scaler
                 Z_tr, Z_ev = np.asarray(Z_tr, float), np.asarray(Z_ev, float)
                 zbar = Z_tr.mean(axis=0)
 
@@ -173,10 +181,15 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
                     "bias": _intercept(head), "b_pop": b_pop,
                     **{f"{e}_w": float(v) for e, v in zip(CORE7, w)},
                     **{f"{e}_wpop": float(v) for e, v in zip(CORE7, w_pop)},
-                    **{f"{e}_wtot": float(a + b) for e, a, b in zip(CORE7, w_pop, w)},
+                    **{f"{e}_wtot": float(b if anchor is None else a + b)
+                       for e, a, b in zip(CORE7, w_pop, w)},
                     # what an ablation holds an emotion at: its mean over this
                     # user's own support set, in the same standardised units
                     **{f"{e}_zbar": float(v) for e, v in zip(CORE7, zbar)},
+                    **{f"{e}_zmean": float(v) for e, v in
+                       zip(CORE7, formula_scaler.mean_)},
+                    **{f"{e}_zscale": float(v) for e, v in
+                       zip(CORE7, formula_scaler.scale_)},
                     **m,
                     "pop_srocc": float(srocc(unit.y_eval, p_pop)),
                     "pop_plcc": float(plcc(unit.y_eval, p_pop)),
