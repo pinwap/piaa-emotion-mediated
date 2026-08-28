@@ -6,9 +6,12 @@ generators live here, the manuscript lives there.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-PAPER_ROOT = Path(r"D:\Pin\STUDY\0CU\exchange\JAIST Internship2025\PIAA_project\paper\final")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PAPER_ROOT = Path(os.environ.get("PIAA_PAPER_ROOT",
+                                PROJECT_ROOT / "paper" / "final"))
 TABLES = PAPER_ROOT / "tables"
 FIGURES = PAPER_ROOT / "figures"
 

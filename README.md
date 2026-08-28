@@ -81,21 +81,22 @@ features/clip_features.npz          pre-extracted features
 | command | produces |
 |---|---|
 | `uv run main.py table1` | main table: every mediator x head at 100 ratings/user |
-| `uv run main.py backbone` | compares 4 backbones (Direct vs. Hybrid) |
+| `uv run main.py backbone --backbones clip,clip_ft,clip_ft_emo,qwen4b,qwen8b` | compares five backbones |
 | `uv run main.py efficiency` | results by rating budget (10/25/50/100) |
-| `uv run main.py faithfulness` | formula swap + weight-vs-empirical-correlation |
-| `uv run main.py mlp_diagnostics` | proves the MLP head actually converges (loss curves) |
+| `uv run main.py formulas` | fits and stores the final per-user formulas |
+| `uv run main.py faithfulness` | formula swap, concept ablation, image swap, and weight alignment |
+| `uv run main.py fig_faithfulness` | regenerates the faithfulness figure from stored CSVs |
+| `uv run main.py fig_efficiency` | regenerates the efficiency figures with seed-averaged SEM |
 | `uv run main.py verify --splits` | checks the data split for leakage |
 
 Every command writes to `output/<experiment name>/`, with `config.json`
 recording every setting that could affect the numbers, alongside
 `per_unit.csv` (raw, one row per evaluation unit) and `summary.csv`
 (mean/sd/best-flag/significance, ready to paste into a spreadsheet).
-`output/` in this repo already has real runs of `efficiency`,
-`faithfulness`, and `mlp_diagnostics` committed, so those can be inspected
-without rerunning anything; `table1` and `backbone` are not pre-run here
-(table1 takes several hours because of the MLP grid) - run them yourself
-to reproduce.
+The released `output/` directory contains the per-unit inputs used by the
+paper tables, the fitted formulas needed by the faithfulness diagnostics,
+the Holm-adjusted statistical audit, and the final figures. This lets a
+reviewer verify the reported summaries without repeating model training.
 
 
 ## Verifying results match the paper
@@ -117,10 +118,11 @@ If a run gives numbers far from these, something is wrong.
 | rows after the first-session filter | 83,327 of 87,836 |
 | evaluation units | 387 (129 users x 3 domains) |
 | each user is a test user | exactly once |
-| Hybrid ridge, average | SROCC 0.421, PLCC 0.431 |
-| Direct ridge, average | SROCC 0.391, PLCC 0.401 |
-| own formula vs. another user's formula | 0.421 vs. 0.349 (SROCC) |
-| weight vs. empirical correlation | Spearman 0.492, 91% of users positive |
+| Hybrid ridge, Qwen3-VL 8B, pooled Average | SROCC 0.459, PLCC 0.469 |
+| Direct ridge, Qwen3-VL 8B, pooled Average | SROCC 0.478, PLCC 0.488 |
+| anchored own vs. five-peer formula swap | SROCC 0.459 vs. 0.396 |
+| image-aligned vs. image-swapped emotions | SROCC 0.459 vs. 0.384 |
+| weight vs. empirical correlation | pooled Spearman 0.525, 94.6% positive |
 
 
 ## Things to watch out for
@@ -133,9 +135,19 @@ If a run gives numbers far from these, something is wrong.
   a fixed order (R, then the permutation) - don't reorder those two lines.
 - Model comparisons use `wilcoxon_paired` (paired, keyed on
   fold/domain/user) everywhere, not a plain two-sample test.
-- MLP head uses early stopping instead of weight decay to avoid
-  memorizing on ~100 samples/user - see `output/mlp_diagnostics/` for the
-  loss curves.
+- MLP learning rate is selected on the held-out validation-user group from
+  the grid in `src/config.py`; the 500-epoch budget and zero weight decay are
+  fixed in advance, and early stopping is disabled.
+
+## Statistical outputs
+
+For three-seed experiments, seeds are averaged within each
+`(fold, domain, user_id, model configuration)` unit before any test or SEM is
+computed. Domain-specific tests therefore use 129 paired units; pooled
+Average tests concatenate the three domains and use 387 user-domain units.
+`output/statistics/holm_corrected.csv` is the source of truth for raw and
+Holm-adjusted p-values. `output/statistics/HOLM_FAMILY_MAP.md` gives the
+human-readable family definitions used for every table.
 
 ## Adding a new experiment
 

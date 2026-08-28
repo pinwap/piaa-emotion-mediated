@@ -55,15 +55,14 @@ One rule, applied everywhere:
 | Stage-1 emotion mediator (MLP) | shared | validation user group |
 | Population / GIAA head (ridge, MLP) | shared | validation user group |
 | Pop-zero formula in `efficiency` | shared | validation user group |
-| Per-user head (ridge) | personal | that user's own support set (`RidgeCV`) |
-| Per-user head (MLP) | personal | 80/20 split of that user's own support set |
+| Per-user head (ridge, sparse linear, MLP) | personal | validation users, using the same support/eval protocol as test users |
 
-The two personal rows cannot use the validation group: those users are
-*different people*, and the whole point of a personal head is that it is
-fit to one individual's taste. What matters for them is that the user's
-50 evaluation images are held out before anything is fit and are never
-touched during selection - which `verify --splits` and the fixed
-support/eval split below both enforce.
+For a personal head, each candidate is fitted separately to every validation
+user's support set and scored on that validation user's 50-image evaluation
+set. Scores are averaged across validation-user units, one hyperparameter is
+frozen for the fold/domain/configuration, and that value is then applied to
+all test users. No test user or test evaluation image participates in model
+selection.
 
 PCA (`n_components=7`) and the random projection have no hyperparameter to
 select, so nothing is chosen for them from any data.
@@ -93,28 +92,32 @@ both ratings of a pair always land in the same split group.
 We report **SROCC and PLCC**, following standard practice in image
 aesthetic assessment.
 
-Comparisons between models use a **paired Wilcoxon signed-rank test** on
-the same 387 units, since every model is evaluated on the same users and
-images.
+Comparisons between models use a **two-sided paired Wilcoxon signed-rank
+test** on matched user-domain units. Seeds are first averaged within each
+unit. A domain-specific test uses 129 users; the pooled Average concatenates
+the three disjoint domains and uses 387 user-domain units.
 
-Tables show mean +/- sd across the 387 units, plus a significance flag from
-the paired test, since it's testing per-unit differences, not the intervals.
+Tables show mean +/- SEM unless their captions explicitly state otherwise.
+Holm--Bonferroni correction is applied within the prespecified families in
+`output/statistics/HOLM_FAMILY_MAP.md`; SROCC and PLCC are separate families,
+and pooled Average is corrected as its own family.
 
 ## 5. Heads
 
 ### Ridge
 
-Alpha comes from the same grid everywhere: **11 values from 1e-2 to 1e3**
-(`numpy.logspace(-2, 3, 11)`). Features are always standardized first.
+Alpha comes from the same grid everywhere: **17 values from 1e-2 to 1e6**
+(`numpy.logspace(-2, 6, 17)`). Features are always standardized first.
 
 How the winner is picked depends on whether the component is shared or
-personal (Sec. 2). A **shared** ridge is fit on the train group at each
-alpha and scored by MSE on the validation group; the best alpha wins. A
-**personal** ridge uses `RidgeCV`'s generalized (efficient leave-one-out)
-cross-validation inside that user's own support set.
+personal (Sec. 2). A **shared** ridge is fit on the train group at each alpha
+and scored by MSE on the validation group. A **personal** ridge mirrors the
+full support/evaluation protocol across validation users and selects the alpha
+with the best mean validation-unit SROCC. The selected value is frozen before
+test-user fitting.
 
 Fitting a mediator on shuffled labels and then selecting its alpha honestly
-drives it to the top of the grid (1e3, i.e. maximal shrinkage), because
+drives it toward the top of the grid (up to 1e6, i.e. maximal shrinkage), because
 there is genuinely no signal for the validation group to reward. That is
 the control behaving correctly, not a bug.
 
@@ -124,15 +127,12 @@ features and averaged across units. This is defined only for linear heads.
 
 ### MLP
 
-A single hidden layer of 128 units, ReLU, trained with MSE loss and no
-weight decay (alpha = 0). The learning rate is chosen from 5 values
-between 1e-4 and 1e-2, then the model is refit on the full data with the
-chosen rate. Which data scores the 5 candidates follows the same rule as
-ridge: a shared MLP is scored on the validation user group, a personal MLP
-on a 20% split of that user's own support set.
-
-Early stopping is used (validation_fraction 0.15, n_iter_no_change 20, max_iter 2000), which is a stopping rule.
-Loss curves in `output/mlp_diagnostics/` show it's actually converging properly, not just cut off early.
+A single hidden layer of 128 units, ReLU, trained with MSE loss and no weight
+decay (`alpha=0`). The learning rate is selected from 11 values from `1e-4`
+to `1e1`; shared components use validation-group MSE, while personal heads
+mirror the support/evaluation protocol across validation users and maximize
+mean validation-unit SROCC. The selected rate is then frozen. Every fit uses
+the fixed 500-epoch budget specified in advance. Early stopping is disabled.
 
 ## 6. Backbones
 
@@ -140,6 +140,7 @@ Loss curves in `output/mlp_diagnostics/` show it's actually converging properly,
 |---|---|---|
 | CLIP frozen | `clip_features.npz` | 512 |
 | CLIP-ft (score) | `clip_ftpf_overall_v4_fold{k}.npz` | 768 |
+| CLIP-ft (emotion) | `clip_ftpf_emotion_v4_fold{k}.npz` | 768 |
 | Qwen3-VL 4B | `vlm4b_LT15.npz` | 2560 |
 | Qwen3-VL 8B | `vlm_LT15.npz` | 4096 |
 
@@ -163,28 +164,29 @@ Neither is included when identifying the best-performing predictive model.
   highest-weighted, an average-weighted, or the lowest-weighted concept)
   and re-scores the user, to see how much each concept's presence is
   actually load-bearing for that user's predictions.
-- **Formula swap** compares a user's own formula against the
-  population-mean formula and against 5 randomly sampled other users'
-  formulas, on the same predictions.
+- **Formula swap** compares a user's own formula against the population-mean
+  formula and against five other users' formulas sampled without replacement
+  by a fixed random seed. Sampling is restricted to the same fold and domain,
+  where coefficients share a scaler and population model.
+- **Image swap** keeps the user's formula fixed but replaces the aligned
+  emotion vector by another evaluation image's vector. The anchored analysis
+  uses all 49 nonzero cyclic shifts; a no-image control uses the support-set
+  mean emotion vector. The unanchored swap is reported as a diagnostic.
 - **Weight vs. empirical correlation** compares the 7 weights the ridge
   head learned against the true correlation between each emotion and that
   user's own ratings.
 
 ## 9. Reproducibility
 
-Every source of randomness is seeded, so a single run (seed 0) is fully
-deterministic. Table 1 is the only experiment whose reported rows include
-both a stochastic mediator (random/shuffled) and an MLP head; every other
-experiment (`backbone`, `efficiency`, `faithfulness`,
-`stage1_emotion_acc`, `stage2_emotion_importance`) only ever reports the
-`emotion` mediator with a ridge head, which has no randomness at all -
-one run is already the final number for those.
+Every source of randomness is seeded. Formula swap resets `RandomState(0)`
+for the anchored and unanchored analyses; image swap uses exhaustive cyclic
+shifts. Both are deterministic arithmetic over stored formulas and refit no
+model.
 
-For Table 1, every stochastic point is repeated under **3 seeds (0, 1,
-2)** and averaged per unit before summarizing, since a single unlucky
-draw for the random/shuffled mediators or the MLP init shouldn't set the
-reported number. seed 0 reproduces the original single-seed numbers
-bit-for-bit; seeds 1 and 2 offset every base seed below by
+For experiments with stochastic model components, points are repeated under
+**3 seeds (0, 1, 2)** and averaged within the user-domain unit before
+summarizing, computing SEM, or testing. Seed 0 reproduces the original
+single-seed numbers; seeds 1 and 2 offset every base seed below by
 `+ run_seed * 1_000_003`.
 
 ### What "reproducible" does and does not promise

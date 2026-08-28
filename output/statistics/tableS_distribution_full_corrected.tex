@@ -1,0 +1,26 @@
+% ----------- distribution: sd 14-d, histogram 35-d
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{\textbf{Distribution-valued Stage-1 targets.} CLIP frozen, population-anchored, ridge head, three seeds averaged within each of 387 user--domain units. Widths are 7 (per-emotion mean), 14 (mean and across-rater standard deviation), and 35 (7 emotions $\times$ 5 rating-histogram bins).}
+\label{tab:distribution}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}c cc ccc@{}}
+\toprule
+$N$ & Population & Direct & Hybrid 7-d & Hybrid 14-d & Hybrid 35-d \\
+\midrule
+10 & $.416_{\pm .009}$ & $.420_{\pm .009}$ & $.414_{\pm .009}$ & $.419_{\pm .009}$ & $.413_{\pm .010}$ \\
+25 & $.416_{\pm .009}$ & $.431_{\pm .009}$ & $.415_{\pm .009}$ & $.419_{\pm .009}$ & $.425_{\pm .009}^{\dagger}$ \\
+50 & $.416_{\pm .009}$ & $.440_{\pm .009}$ & $.423_{\pm .009}$ & $.428_{\pm .009}^{\dagger}$ & $.435_{\pm .009}^{\dagger}$ \\
+100 & $.416_{\pm .009}$ & $.456_{\pm .009}$ & $.435_{\pm .009}^{\dagger}$ & $.434_{\pm .009}^{\dagger}$ & $.442_{\pm .009}^{\dagger}$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM over 387 seed-averaged user--domain units.
+\item $^\dagger$ Holm-adjusted two-sided paired Wilcoxon $p<.05$ versus Population. One family contains the 12 Hybrid comparisons: three mediator widths at four rating budgets.
+\item At $N=100$, the 14-d and 7-d variants have nearly identical mean SROCC (.434 and .435). Among the Hybrid variants, the 35-d histogram has the highest mean from $N=25$ onward and significantly outperforms Population at each of these budgets; \cref{tab:rater_sd} examines why adding across-rater standard deviation provides no apparent gain.
+\item This experiment was run with frozen CLIP only and is reported as a negative control for the choice of Stage-1 target, not as a primary result.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

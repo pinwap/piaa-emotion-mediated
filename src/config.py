@@ -4,7 +4,7 @@ Anything that can change the reported numbers lives here, once, and gets
 dumped as config.json next to every output so a run can be traced back to
 its settings later.
 
-ridge_alphas: logspace(-2, 3, 11), 11 values from 1e-2 to 1e3.
+ridge_alphas: logspace(-2, 6, 17), 17 values from 1e-2 to 1e6.
 """
 from __future__ import annotations
 
@@ -157,7 +157,13 @@ class Config:
         d = {}
         for k, v in asdict(self).items():
             if isinstance(v, Path):
-                d[k] = str(v)
+                # Keep released run snapshots portable and anonymous. Paths
+                # inside this repository are recorded relative to its root;
+                # genuinely external paths remain absolute.
+                try:
+                    d[k] = str(v.resolve().relative_to(PROJECT_ROOT.resolve()))
+                except ValueError:
+                    d[k] = str(v)
             elif isinstance(v, tuple):
                 # numeric grids dump as floats; name lists (e.g.
                 # stage2_variant_mediators) dump as-is

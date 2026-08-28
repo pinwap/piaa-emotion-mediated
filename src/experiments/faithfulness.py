@@ -20,16 +20,16 @@ Because the head is linear, every check is arithmetic over saved numbers:
      proving that the total emotion weights faithfully explain the score.
 
   2. Formula swap. Score a user with their own formula, with the mean of all
-     other users' formulas, and with every individual other user's formula. "Own"
-     should win if formulas are really personal. A swap is only meaningful
+     eligible peer formulas, and with five fixed-seed sampled peer formulas.
+     "Own" should win if formulas are really personal. A swap is only meaningful
      inside one fold and one domain, because that is the only place two
      users' coefficients share a scaler and a population model. The earlier
      version pooled by domain across folds, which mixed units.
 
-  3. Weight against empirical correlation. Do the seven coefficients line up
-     with how much each predicted emotion actually correlates with that user's
-     scores? Under the anchor the target is the residual the head was fitted
-     on, y - y_pop, not the raw score.
+  3. Weight against empirical correlation. Do the seven total-formula weights
+     line up with how much each predicted emotion correlates with that user's
+     raw aesthetic scores? This is the reported total-formula interpretation;
+     it is not a residual-only diagnostic.
 
   4. Image swap. Keep the user's fitted formula and the target image's
      population prediction fixed, but replace its emotion vector with the
@@ -51,6 +51,8 @@ from scipy.stats import rankdata, spearmanr
 from src.data.data import CORE7, DOMAINS
 from src.utils.metrics import mean_sd, plcc, sem, srocc, wilcoxon_paired
 
+N_SWAP = 5
+SWAP_SEED = 0
 KEY = ["fold", "domain", "user_id"]
 
 
@@ -157,12 +159,15 @@ def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------- 2. formula swap
 
 def formula_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
-    """Apply other people's formulas to this person's images.
+    """Apply five reproducibly sampled peer formulas to this person's images.
 
     Only within one (fold, domain): elsewhere the coefficients are in a
     different scaler and sit on a different population model, so applying them
-    would not be a swap, it would be a unit error.
+    would not be a swap, it would be a unit error. ``RandomState(0)`` is reset
+    at the start of each anchored/unanchored call, making the selected peers
+    and every reported value deterministic across reruns.
     """
+    rng = np.random.RandomState(SWAP_SEED)
     rows = []
     u_by_fd = {k: g for k, g in units.groupby(["fold", "domain"], sort=False)}
 
@@ -190,10 +195,16 @@ def formula_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
                 return z @ w + float(row["bias"])
             return y_pop + Z @ w + float(row["bias"])
 
-        oth = [score_with(others.iloc[i]) for i in range(len(others))]
-        pop = np.mean(oth, axis=0)
+        pick = rng.choice(
+            len(others), size=min(N_SWAP, len(others)), replace=False
+        )
+        oth = [score_with(others.iloc[i]) for i in pick]
+        pop = np.mean(
+            [score_with(others.iloc[i]) for i in range(len(others))], axis=0
+        )
         rows.append(dict(zip(KEY, key)) | dict(
             n_others=len(others),
+            n_swaps=len(pick),
             own_srocc=srocc(y, own), own_plcc=plcc(y, own),
             other_srocc=float(np.mean([srocc(y, o) for o in oth])),
             other_plcc=float(np.mean([plcc(y, o) for o in oth])),
@@ -206,11 +217,9 @@ def formula_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
 def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
     """Do the coefficients agree with what each emotion actually tracks?
 
-    The head was fitted on the residual against the population model, so the
-    thing a coefficient claims to explain is that residual. Correlating the
-    weights against the raw score instead would ask a question the head was
-    never fitted to answer, and would credit the coefficients with whatever
-    y_pop already got right.
+    The paper interprets the total personal formula, so this check uses the
+    stored total weights and the user's raw aesthetic score. The component
+    residual weights are not the estimand reported in the alignment table.
     """
     rows = []
     u_idx = units.set_index(KEY)
@@ -220,8 +229,6 @@ def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFra
         u = u_idx.loc[key]
         w = np.array([float(u[f"{e}_wtot"]) for e in CORE7])
         y = g["y_true"].to_numpy(float)
-        # resid = y - g["y_pop"].to_numpy(float)
-
         def emp_against(target):
             out = []
             for e in CORE7:
@@ -238,11 +245,8 @@ def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFra
             n_emotions=int(ok.sum()),
             spearman=float(spearmanr(w[ok], emp[ok]).statistic),
             pearson=float(np.corrcoef(w[ok], emp[ok])[0, 1]))
-        # the same question asked against the raw score rather than the
-        # residual. It is the wrong target for an anchored head -- it credits
-        # the coefficients with whatever y_pop already got right -- but the
-        # earlier version reported it, so both are written out and the choice
-        # is visible instead of silent.
+        # Retain explicit aliases for compatibility with earlier output readers.
+        # They deliberately repeat the reported raw-score association.
         emp_raw = emp_against(y)
         ok2 = np.isfinite(emp_raw)
         if ok2.sum() >= 3:

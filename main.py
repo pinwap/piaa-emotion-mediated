@@ -3,7 +3,7 @@
 Examples:
     uv run main.py verify --splits
     uv run main.py table1
-    uv run main.py backbone --backbones clip,clip_ft,qwen4b,qwen8b
+    uv run main.py backbone --backbones clip,clip_ft,clip_ft_emo,qwen4b,qwen8b
     uv run main.py efficiency --n-train 10,25,50,100
     uv run main.py faithfulness
 
@@ -60,7 +60,8 @@ def main(argv=None) -> int:
                             "fig_faithfulness",
                             "fig_efficiency", "verify"])
     ap.add_argument("--backbone", default="qwen8b", help="default: qwen8b")
-    ap.add_argument("--backbones", default="clip,clip_ft,qwen4b,qwen8b")
+    ap.add_argument("--backbones",
+                    default="clip,clip_ft,clip_ft_emo,qwen4b,qwen8b")
     ap.add_argument("--n-train", default="10,25,50,100")
     ap.add_argument("--all-sessions", action="store_true",
                     help="disable the first-session filter (not what the paper uses)")

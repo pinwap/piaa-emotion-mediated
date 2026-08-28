@@ -1,6 +1,7 @@
 """Does the emotion mediator still help as the image backbone gets stronger?
 
-Direct vs. Hybrid on 4 backbones, 100 ratings/user, same users/images so we
+Population, Direct, and Hybrid on 5 backbones, 100 ratings/user, with the
+same users/images so we
 can use a paired test. Fine-tuned backbones must load per-fold features
 (see modeling/backbones.py) or this leaks.
 
