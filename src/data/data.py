@@ -82,6 +82,7 @@ class XpassDataset:
             if verbose:
                 print(f"[data] first-session only: {self.n_raw} -> {len(df)} rows, dropped {self.n_raw - len(df)} duplicates")
         else:
+            df = raw
             if verbose:
                 print(f"[data] using all ratings: {len(df)} rows")
         self.df = df
