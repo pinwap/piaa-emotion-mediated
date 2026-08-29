@@ -24,6 +24,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -276,14 +277,14 @@ def mlp_rows(raw: pd.DataFrame) -> list[dict]:
     return rows
 
 
-def mlp_architecture_rows() -> list[dict]:
-    """MLP architecture/loss-weight ablation shown in the supplement."""
+def mlp_architecture_data(source_root: Path = ROOT) -> pd.DataFrame:
+    """Load and seed-average the MLP architecture/loss-weight ablation."""
     frames = []
 
     for lam in ["0.1", "10"]:
         for seed in [0, 1, 2]:
             path = (
-                ROOT / "output" / "MLP_SWEEP" / f"joint_lam{lam}_s{seed}"
+                source_root / "output" / "MLP_SWEEP" / f"joint_lam{lam}_s{seed}"
                 / "efficiency" / "qwen8b"
                 / "raw_C_m_qwen8b_memo_joint.csv"
             )
@@ -297,13 +298,13 @@ def mlp_architecture_rows() -> list[dict]:
             frames.append(d)
 
     lambda_one_paths = [
-        ROOT / "output" / "thundering_lobster_modal_all_runs" / "lr"
+        source_root / "output" / "thundering_lobster_modal_all_runs" / "lr"
         / "1_mlp-mse-s0"
         / "raw_C_m_qwen8b_midentity-random-shuffled-pca-emo-emo_mlp-emo_joint.csv",
-        ROOT / "output" / "thundering_lobster_modal_all_runs" / "lr"
+        source_root / "output" / "thundering_lobster_modal_all_runs" / "lr"
         / "2_mlp-mse-s1"
         / "raw_C_m_qwen8b_midentity-random-shuffled-pca-emo-emo_mlp-emo_joint.csv",
-        ROOT / "output" / "thundering_lobster_modal_all_runs" / "lr"
+        source_root / "output" / "thundering_lobster_modal_all_runs" / "lr"
         / "3_mlp-mse-s2"
         / "raw_C_m_qwen8b_midentity-random-shuffled-pca-emo-emo_mlp-emo_joint.csv",
     ]
@@ -319,7 +320,12 @@ def mlp_architecture_rows() -> list[dict]:
             frames.append(x)
 
     combined = pd.concat(frames, ignore_index=True)
-    averaged = _validate_and_average(combined, ["condition"], "MLP architecture")
+    return _validate_and_average(combined, ["condition"], "MLP architecture")
+
+
+def mlp_architecture_rows(source_root: Path = ROOT) -> list[dict]:
+    """MLP architecture/loss-weight ablation shown in the supplement."""
+    averaged = mlp_architecture_data(source_root)
     candidates = [
         ("joint_lambda_0.1", "MLP joint lambda=0.1"),
         ("joint_lambda_1", "MLP joint lambda=1"),
@@ -344,10 +350,10 @@ def mlp_architecture_rows() -> list[dict]:
     return rows
 
 
-def distribution_rows() -> list[dict]:
+def distribution_rows(source_root: Path = ROOT) -> list[dict]:
     """Distribution-valued mediator variants versus Population."""
     path = (
-        ROOT / "output" / "efficiency" / "clip"
+        source_root / "output" / "efficiency" / "clip"
         / "raw_C_memo-emo_sd-emo_hist.csv"
     )
     data = pd.read_csv(path, low_memory=False)
@@ -585,9 +591,9 @@ def _paired_columns_row(
     }
 
 
-def faithfulness_rows() -> list[dict]:
+def faithfulness_rows(base: Path | None = None) -> list[dict]:
     """All displayed faithfulness panels share one domain-metric family."""
-    base = ROOT / "output" / "faithfulness"
+    base = base or ROOT / "output" / "faithfulness"
     ablation = pd.read_csv(base / "ablation.csv")
     swap_anchored = pd.read_csv(base / "formula_swap.csv")
     swap_plain = pd.read_csv(base / "formula_swap_unanchored.csv")
@@ -664,6 +670,23 @@ def faithfulness_rows() -> list[dict]:
                     reference_label=label,
                     contrast=f"Correct image vs {label}",
                 ))
+            # The Results and Discussion also compare the two controls
+            # directly: image-swapped emotions should be worse than a control
+            # carrying no image-specific emotion information.  This contrast
+            # uses the same 387 units as the other faithfulness diagnostics,
+            # so it belongs in the same Holm family rather than a new family.
+            rows.append(_paired_columns_row(
+                image,
+                table="figure_faithfulness",
+                block="image_swap",
+                domain=domain,
+                metric=metric,
+                candidate_column=f"no_image_{metric}",
+                reference_column=f"swapped_{metric}",
+                candidate_label="No-image emotion",
+                reference_label="Swapped image",
+                contrast="No-image emotion vs Swapped image",
+            ))
             rows.append(_paired_columns_row(
                 image_plain,
                 table="figure_faithfulness",
@@ -679,9 +702,10 @@ def faithfulness_rows() -> list[dict]:
     return rows
 
 
-def weight_alignment_rows() -> list[dict]:
+def weight_alignment_rows(base: Path | None = None) -> list[dict]:
     """One-sided tests that alignment is greater than zero."""
-    data = pd.read_csv(ROOT / "output" / "faithfulness" / "weight_vs_empirical.csv")
+    base = base or ROOT / "output" / "faithfulness"
+    data = pd.read_csv(base / "weight_vs_empirical.csv")
     _validate_per_unit_frame(data, "weight alignment")
     rows = []
     for domain in DOMAINS:
@@ -755,17 +779,31 @@ def apply_holm(rows: list[dict]) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def main() -> int:
-    raw = pd.read_csv(RAW, low_memory=False)
+def generate(
+    *,
+    raw_path: Path = RAW,
+    output_dir: Path = OUT.parent,
+    source_root: Path = ROOT,
+    faithfulness_dir: Path | None = None,
+) -> pd.DataFrame:
+    """Generate every corrected test without modifying canonical outputs."""
+    raw_path = Path(raw_path)
+    output_dir = Path(output_dir)
+    source_root = Path(source_root)
+    faithfulness_dir = (
+        Path(faithfulness_dir) if faithfulness_dir is not None
+        else source_root / "output" / "faithfulness"
+    )
+    raw = pd.read_csv(raw_path, low_memory=False)
     result = apply_holm(
         table1_rows(raw)
-        + mlp_architecture_rows()
-        + distribution_rows()
+        + mlp_architecture_rows(source_root)
+        + distribution_rows(source_root)
         + anchor_rows(raw)
         + backbone_rows(raw)
         + efficiency_rows(raw)
-        + faithfulness_rows()
-        + weight_alignment_rows()
+        + faithfulness_rows(faithfulness_dir)
+        + weight_alignment_rows(faithfulness_dir)
     )
 
     expected_families = {
@@ -775,7 +813,7 @@ def main() -> int:
         ("tableS2", 5): 8,
         ("table2_anchor", 8): 2,
         ("table_efficiency", 8): 8,
-        ("figure_faithfulness", 12): 8,
+        ("figure_faithfulness", 13): 8,
         ("table_weight_alignment", 1): 8,
     }
     observed = (
@@ -788,16 +826,24 @@ def main() -> int:
     if observed != expected_families:
         raise ValueError(f"unexpected family layout: {observed}; expected {expected_families}")
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    result.to_csv(OUT, index=False, float_format="%.17g")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / "holm_corrected.csv"
+    table_s2_out = output_dir / "tableS2_holm_corrected.csv"
+    mlp_out = output_dir / "tableS_mlp_holm_corrected.csv"
+    distribution_out = output_dir / "tableS_distribution_holm_corrected.csv"
+    family_out = output_dir / "holm_family_summary.csv"
+    changes_out = output_dir / "holm_dagger_changes.csv"
+    definitions_out = output_dir / "holm_family_definitions.csv"
+
+    result.to_csv(out, index=False, float_format="%.17g")
     result[result.table == "tableS2"].to_csv(
-        TABLE_S2_OUT, index=False, float_format="%.17g"
+        table_s2_out, index=False, float_format="%.17g"
     )
     result[result.table == "tableS_mlp_architecture"].to_csv(
-        MLP_OUT, index=False, float_format="%.17g"
+        mlp_out, index=False, float_format="%.17g"
     )
     result[result.table == "tableS_distribution"].to_csv(
-        DISTRIBUTION_OUT, index=False, float_format="%.17g"
+        distribution_out, index=False, float_format="%.17g"
     )
 
     result["raw_significant_0_05"] = result.p_raw < 0.05
@@ -813,12 +859,12 @@ def main() -> int:
         min_p_holm=("p_holm", "min"),
         max_p_holm=("p_holm", "max"),
     )
-    family_summary.to_csv(FAMILY_OUT, index=False, float_format="%.17g")
+    family_summary.to_csv(family_out, index=False, float_format="%.17g")
 
     changes = result[
         result.raw_significant_0_05 != result.reject_holm_0_05
     ].copy()
-    changes.to_csv(CHANGES_OUT, index=False, float_format="%.17g")
+    changes.to_csv(changes_out, index=False, float_format="%.17g")
 
     definitions = pd.DataFrame([
         {
@@ -878,9 +924,9 @@ def main() -> int:
             "reported": "Faithfulness figure and detail tables",
             "source": "output/faithfulness/*.csv",
             "family_by": "domain x metric; correlated panels combined",
-            "tests_per_family": 12,
+            "tests_per_family": 13,
             "contrasts": ("formula swap (6), concept ablation (3), "
-                          "image swap (3)"),
+                          "image swap (4)"),
         },
         {
             "table": "table_weight_alignment",
@@ -907,14 +953,14 @@ def main() -> int:
             "contrasts": "none",
         },
     ])
-    definitions.to_csv(DEFINITIONS_OUT, index=False)
+    definitions.to_csv(definitions_out, index=False)
 
-    print(f"wrote {len(result)} tests to {OUT}")
-    print(f"wrote Table S2 tests to {TABLE_S2_OUT}")
-    print(f"wrote MLP tests to {MLP_OUT}")
-    print(f"wrote distribution tests to {DISTRIBUTION_OUT}")
-    print(f"wrote family summary to {FAMILY_OUT}")
-    print(f"wrote {len(changes)} dagger changes to {CHANGES_OUT}")
+    print(f"wrote {len(result)} tests to {out}")
+    print(f"wrote Table S2 tests to {table_s2_out}")
+    print(f"wrote MLP tests to {mlp_out}")
+    print(f"wrote distribution tests to {distribution_out}")
+    print(f"wrote family summary to {family_out}")
+    print(f"wrote {len(changes)} dagger changes to {changes_out}")
     print("family layout:")
     print(result.groupby(["table", "family_size"]).family_id.nunique().to_string())
     print("paired-unit counts:", sorted(result.n_units.unique()))
@@ -926,6 +972,22 @@ def main() -> int:
        "reject_holm_0_05"]]
     print("\nTable S2 priority contrasts:")
     print(priority.to_string(index=False))
+    return result
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--raw", type=Path, default=RAW)
+    parser.add_argument("--output-dir", type=Path, default=OUT.parent)
+    parser.add_argument("--source-root", type=Path, default=ROOT)
+    parser.add_argument("--faithfulness-dir", type=Path, default=None)
+    args = parser.parse_args(argv)
+    generate(
+        raw_path=args.raw,
+        output_dir=args.output_dir,
+        source_root=args.source_root,
+        faithfulness_dir=args.faithfulness_dir,
+    )
     return 0
 
 

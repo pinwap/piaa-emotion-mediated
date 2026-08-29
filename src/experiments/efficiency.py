@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from src.utils import selection_log
-from src.utils.metrics import mean_sd, sem, wilcoxon_paired
+from src.utils.metrics import mean_sd, participant_cluster_bootstrap
 from src.utils.results_db import record
 
 #: mediators the sweep reports. Population is added by run_grid.
@@ -141,11 +141,15 @@ def summarize(df: pd.DataFrame, n_list: list[int]) -> pd.DataFrame:
                 for m in ("srocc", "plcc"):
                     mean, sd = mean_sd(s[m])
                     r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
-                    r[f"{m}_sem"] = sem(s[m])
+                    s_users = s.index.get_level_values("user_id")
+                    r[f"{m}_sem"] = participant_cluster_bootstrap(
+                        s[m], s_users)["sem"]
                     j = s[[m]].merge(ref[[m]], left_index=True, right_index=True,
                                      suffixes=("", "_pop")).dropna()
                     p = (np.nan if med == REFERENCE
-                         else wilcoxon_paired(j[m], j[f"{m}_pop"]))
+                         else participant_cluster_bootstrap(
+                             j[m] - j[f"{m}_pop"],
+                             j.index.get_level_values("user_id"))["p_value"])
                     # the question the reviewer asks: does personalization beat the
                     # population model at this support size, and is it real?
                     r[f"{m}_beats_pop"] = bool(len(j) and

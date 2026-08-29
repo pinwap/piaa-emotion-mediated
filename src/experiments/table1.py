@@ -22,7 +22,8 @@ import numpy as np
 import pandas as pd
 
 from src.data.data import DOMAINS
-from src.utils.metrics import mean_sd, plcc, sem, srocc, wilcoxon_paired
+from src.utils.metrics import (mean_sd, participant_cluster_bootstrap, plcc,
+                               sem, srocc)
 from src.utils.results_db import record
 
 #: row order (mediator, head)
@@ -93,8 +94,11 @@ def run_one_seed(cfg, pipeline, seed: int, variant: str | None = None,
          f"per_unit{_tag(variant)}{_htag(heads)}{_mtag(mediators)}_seed{seed}.csv")
     d.to_csv(f, index=False)
     print(f"[table1] seed {seed} variant {variant} written ({len(d)} rows) -> {f.name}")
-    record(d, "table1", backbone=cfg.backbone, variant=variant,
-           n_train=cfg.n_train)
+    # Respect --output-dir for both the run files and the append-only results
+    # database.  This keeps verification/ablation runs isolated instead of
+    # silently appending them to the frozen canonical output/raw_all.csv.
+    record(d, "table1", db_path=Path(cfg.output_dir) / "raw_all.csv",
+           backbone=cfg.backbone, variant=variant, n_train=cfg.n_train)
     return d
 
 
@@ -171,11 +175,14 @@ def summarize(df, retest) -> pd.DataFrame:
         for m in ("srocc", "plcc"):
             mean, sd = mean_sd(s[m])
             r[f"avg_{m}_mean"], r[f"avg_{m}_sd"] = mean, sd
-            r[f"avg_{m}_sem"] = sem(s[m])
+            r[f"avg_{m}_sem"] = participant_cluster_bootstrap(
+                s[m], s.index.get_level_values("user_id"))["sem"]
             j = s[[m]].merge(ref[[m]], left_index=True, right_index=True,
                              suffixes=("", "_ref")).dropna()
             p = (np.nan if (med, head) == REFERENCE
-                 else wilcoxon_paired(j[m], j[f"{m}_ref"]))
+                 else participant_cluster_bootstrap(
+                     j[m] - j[f"{m}_ref"],
+                     j.index.get_level_values("user_id"))["p_value"])
             r[f"avg_{m}_sig"] = bool(np.isfinite(p) and p < 0.05)
         rows.append(r)
 

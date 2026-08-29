@@ -26,7 +26,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.experiments.paper_paths import TABLES, ensure   # noqa: E402
-from src.utils.metrics import sem, wilcoxon_paired       # noqa: E402
+from src.utils.metrics import participant_cluster_bootstrap  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -76,10 +76,13 @@ def column(variant: str) -> dict:
         r = {"n": len(s)}
         for m in ("srocc", "plcc"):
             r[f"{m}_mean"] = float(s[m].mean())
-            r[f"{m}_sem"] = float(sem(s[m]))
+            r[f"{m}_sem"] = participant_cluster_bootstrap(
+                s[m], s.index.get_level_values("user_id"))["sem"]
             j = s[[m]].merge(ref[[m]], left_index=True, right_index=True,
                              suffixes=("", "_ref")).dropna()
-            p = np.nan if med == REFERENCE else wilcoxon_paired(j[m], j[f"{m}_ref"])
+            p = (np.nan if med == REFERENCE else participant_cluster_bootstrap(
+                j[m] - j[f"{m}_ref"],
+                j.index.get_level_values("user_id"))["p_value"])
             r[f"{m}_p"] = p
             r[f"{m}_sig"] = bool(np.isfinite(p) and p < 0.05)
         out[med] = r

@@ -94,8 +94,11 @@ aesthetic assessment.
 
 Comparisons between models use a **two-sided paired Wilcoxon signed-rank
 test** on matched user-domain units. Seeds are first averaged within each
-unit. A domain-specific test uses 129 users; the pooled Average concatenates
-the three disjoint domains and uses 387 user-domain units.
+unit. A domain-specific test uses 129 users. The Average column contains 387
+user-domain rows, but the three domains from one participant are correlated;
+therefore its SEM, confidence interval, and two-sided p-value use a
+10,000-sample participant-cluster bootstrap over 129 participants, retaining
+all three domains whenever a participant is resampled (random seed 0).
 
 Tables show mean +/- SEM unless their captions explicitly state otherwise.
 Holm--Bonferroni correction is applied within the prespecified families in

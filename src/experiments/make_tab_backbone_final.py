@@ -31,7 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.experiments.paper_paths import TABLES, VARIANT, N_TRAIN, ensure  # noqa: E402
 from src.modeling.backbones import backbone_label                          # noqa: E402
-from src.utils.metrics import sem, wilcoxon_paired                         # noqa: E402
+from src.utils.metrics import (participant_cluster_bootstrap, sem,
+                               wilcoxon_paired)                            # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -95,11 +96,18 @@ def main() -> int:
                 rd = ref if dom is None else ref[ref.index.get_level_values("domain") == dom]
                 for m in ("srocc", "plcc"):
                     r[(dom, m, "mean")] = float(sd[m].mean())
-                    r[(dom, m, "sem")] = float(sem(sd[m]))
+                    r[(dom, m, "sem")] = (
+                        participant_cluster_bootstrap(
+                            sd[m], sd.index.get_level_values("user_id"))["sem"]
+                        if dom is None else float(sem(sd[m])))
                     j = sd[[m]].merge(rd[[m]], left_index=True, right_index=True,
                                       suffixes=("", "_p")).dropna()
                     p = (np.nan if med == REFERENCE
-                         else wilcoxon_paired(j[m], j[f"{m}_p"]))
+                         else (participant_cluster_bootstrap(
+                             j[m] - j[f"{m}_p"],
+                             j.index.get_level_values("user_id"))["p_value"]
+                               if dom is None else
+                               wilcoxon_paired(j[m], j[f"{m}_p"])))
                     r[(dom, m, "sig")] = bool(np.isfinite(p) and p < 0.05)
             stats[(bb, med)] = r
 

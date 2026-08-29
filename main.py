@@ -17,13 +17,6 @@ from scipy.linalg import LinAlgWarning
 warnings.filterwarnings("ignore", category=LinAlgWarning)
 
 # *** bit-for-bit reproducibility -- must run before numpy is imported ***
-# Multi-threaded BLAS sums in whatever order the threads finish, so the same
-# matrix product can differ in the last few bits between runs. Normally that
-# is invisible, but hyperparameter selection compares scores: when two alphas
-# are nearly tied, those last bits decide the winner, and a different alpha is
-# a visibly different model. Pinning BLAS to one thread makes every run
-# identical. Parallelism is still available by running whole experiments as
-# separate processes (see --seed).
 for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
            "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
     os.environ[_v] = "1"
@@ -60,8 +53,7 @@ def main(argv=None) -> int:
                             "fig_faithfulness",
                             "fig_efficiency", "verify"])
     ap.add_argument("--backbone", default="qwen8b", help="default: qwen8b")
-    ap.add_argument("--backbones",
-                    default="clip,clip_ft,clip_ft_emo,qwen4b,qwen8b")
+    ap.add_argument("--backbones", default="clip,clip_ft,clip_ft_emo,qwen4b,qwen8b")
     ap.add_argument("--n-train", default="10,25,50,100")
     ap.add_argument("--all-sessions", action="store_true",
                     help="disable the first-session filter (not what the paper uses)")
@@ -74,11 +66,11 @@ def main(argv=None) -> int:
                          "(seeds are independent, so they can run in parallel; "
                          "the last one merges whatever is on disk)")
     ap.add_argument("--stage2", default=None, choices=["plain", "A", "B", "C"],
-                    help="table1: how the personal head relates to the "
-                         "population model. plain=shrink toward 0, "
+                    help="table1: how the personal head relates to the population model."
+                         "plain=shrink toward 0, "
                          "A=GIAA prediction as an extra feature, "
                          "B=shrink toward the pooled training-group weights, "
-                         "C=fit on the residual against GIAA. Each writes its "
+                         "C=fit on the residual against GIAA. Each writes its (The final Pop-Anchored in paper) "    
                          "own summary{_A,_B,_C}.csv so they can be compared.")
     ap.add_argument("--mediators", default=None,
                     help="table1/efficiency: comma-separated mediators, e.g. "
@@ -86,8 +78,7 @@ def main(argv=None) -> int:
                          "emotion_sd (14 wide) and emotion_hist (35 wide) are "
                          "the distribution-valued Stage-1 variants.")
     ap.add_argument("--heads", default=None,
-                    help="table1: comma-separated heads to run. "
-                         "A partial run writes "
+                    help="table1: comma-separated heads to run. A partial run writes "
                          "per_unit*_<h>_seed*.csv and leaves the full run's "
                          "files untouched; merge with merge_table1.py")
     ap.add_argument("--folds", default=None,
@@ -130,6 +121,24 @@ def main(argv=None) -> int:
             return 0 if verify.check_repro(cfg, name, go) else 1
         return 0 if verify.check_splits(cfg) else 1
 
+    # Stored-result analyses -> able to regenerate diagnostics and figures from CSV databases.
+    if args.experiment == "faithfulness":
+        from src.experiments import faithfulness
+        faithfulness.run(cfg)
+        return 0
+    if args.experiment == "fig_faithfulness":
+        from src.utils import fig_faithfulness
+        fig_faithfulness.run(cfg, "sd")
+        fig_faithfulness.run(cfg, "sem")
+        return 0
+    if args.experiment == "fig_efficiency":
+        from src.utils import fig_efficiency
+        fig_efficiency.run(cfg, "sd")
+        fig_efficiency.run(cfg, "sem")
+        fig_efficiency.run(cfg, "sd", domain_split=True)
+        fig_efficiency.run(cfg, "sem", domain_split=True)
+        return 0
+
     ds, bb, sp, pipe = build(cfg, args.backbone)
 
     # --every experiment--
@@ -160,9 +169,6 @@ def main(argv=None) -> int:
                               if args.seed is not None else (0,)),
                        folds=([int(x) for x in args.folds.split(",")]
                               if args.folds else None))
-    elif args.experiment == "faithfulness":
-        from src.experiments import faithfulness
-        faithfulness.run(cfg, pipe)
     elif args.experiment == "formulas":
         from src.experiments import formulas
         formulas.run(
@@ -188,16 +194,6 @@ def main(argv=None) -> int:
     elif args.experiment == "gt_formula_matched":
         from src.experiments import gt_formula_matched
         gt_formula_matched.run(cfg, pipe, n_train=int(args.n_train.split(",")[-1]))
-    elif args.experiment == "fig_faithfulness":
-        from src.utils import fig_faithfulness
-        fig_faithfulness.run(cfg, "sd")
-        fig_faithfulness.run(cfg, "sem")
-    elif args.experiment == "fig_efficiency":
-        from src.utils import fig_efficiency
-        fig_efficiency.run(cfg, "sd")
-        fig_efficiency.run(cfg, "sem")
-        fig_efficiency.run(cfg, "sd", domain_split=True)
-        fig_efficiency.run(cfg, "sem", domain_split=True)
 
     return 0
 

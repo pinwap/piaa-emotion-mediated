@@ -13,6 +13,8 @@ Usage:  python -m src.experiments.make_paper_figures
 """
 from __future__ import annotations
 
+import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -33,13 +35,13 @@ from src.experiments.paper_paths import FIGURES as PAPER_FIGS  # noqa: E402
 BACKBONE, VARIANT, HEAD = "qwen8b", "C", "ridge"
 
 
-def stage_efficiency_slice() -> Path:
+def stage_efficiency_slice(raw_path: Path, output_dir: Path) -> Path:
     """Write the (backbone, anchor) slice fig_efficiency reads.
 
     Only the three mediators the figure plots, so a stray row cannot change a
     curve, and only the reported anchor.
     """
-    raw = pd.read_csv(ROOT / "output" / "raw_all_final.csv", low_memory=False)
+    raw = pd.read_csv(raw_path, low_memory=False)
     d = raw[(raw.backbone == BACKBONE) & (raw.variant == VARIANT)
             & (raw["head"] == HEAD)
             & raw.mediator.isin(["population", "identity", "emotion"])]
@@ -48,20 +50,41 @@ def stage_efficiency_slice() -> Path:
 
     n = sorted(d.n_train.unique())
     seeds = sorted(d.seed.unique())
-    dest = ROOT / "output" / "efficiency" / BACKBONE / "raw.csv"
+    dest = output_dir / "efficiency" / BACKBONE / "raw.csv"
     dest.parent.mkdir(parents=True, exist_ok=True)
     d.to_csv(dest, index=False)
     print(f"[efficiency] {len(d)} rows, n_train={n}, seeds={seeds} -> {dest.name}")
     return dest
 
 
-def main() -> int:
-    PAPER_FIGS.mkdir(parents=True, exist_ok=True)
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--raw", type=Path,
+                        default=ROOT / "output" / "raw_all_final.csv")
+    parser.add_argument("--faithfulness-dir", type=Path,
+                        default=ROOT / "output" / "faithfulness")
+    parser.add_argument("--work-output-dir", type=Path,
+                        default=ROOT / "output")
+    parser.add_argument("--figures-dir", type=Path, default=PAPER_FIGS)
+    args = parser.parse_args(argv)
+
+    args.figures_dir.mkdir(parents=True, exist_ok=True)
     cfg = Config()
     cfg.backbone = BACKBONE
-    cfg.figures_dir = PAPER_FIGS
+    cfg.output_dir = args.work_output_dir
+    cfg.figures_dir = args.figures_dir
 
-    stage_efficiency_slice()
+    stage_efficiency_slice(args.raw, cfg.output_dir)
+
+    # Faithfulness figure readers expect this conventional layout.  Copy only
+    # the seven derived CSVs into the isolated work tree; never stage over the
+    # canonical output directory during release verification.
+    staged_faithfulness = cfg.output_dir / "faithfulness"
+    staged_faithfulness.mkdir(parents=True, exist_ok=True)
+    for source in sorted(args.faithfulness_dir.glob("*.csv")):
+        destination = staged_faithfulness / source.name
+        if source.resolve() != destination.resolve():
+            shutil.copy2(source, destination)
 
     # SEM only: the paper reports the standard error of the mean, and a
     # second set of SD figures beside it only invites reading the wrong band
@@ -74,7 +97,7 @@ def main() -> int:
     fig_faithfulness.run(cfg, "sem")
     print("[faithfulness] figures written")
 
-    for p in sorted(PAPER_FIGS.glob("*.pdf")):
+    for p in sorted(args.figures_dir.glob("*.pdf")):
         print(f"  {p.name:44s} {p.stat().st_size / 1024:6.1f} kB")
     return 0
 

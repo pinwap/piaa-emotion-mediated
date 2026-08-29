@@ -76,9 +76,10 @@ backbones:
 reported descriptively; Direct comparisons are not part of the confirmatory
 family and should not carry daggers.
 
-The pooled-Average claim survives for all five backbones in both metrics (all
-Holm-adjusted p-values below .005). This claim should not be generalized to
-every individual domain.
+The pooled-Average claim survives for all five backbones in both metrics. The
+largest Holm-adjusted p-value is .0106 (Qwen3-VL 4B SROCC), so the defensible
+summary is all $p<.05$, not all $p<.005$. This claim should not be generalized
+to every individual domain.
 
 ## Efficiency table and figure
 
@@ -108,7 +109,7 @@ averaging. No model retraining is required.
 **Eight families:** `{Artwork, Fashion, Landscape, Average} x {SROCC, PLCC}`.
 
 The three panels use the same units and are kept in one family. Each family
-contains these 12 comparisons:
+contains these 13 comparisons:
 
 **Formula swap (6)**
 
@@ -125,16 +126,19 @@ contains these 12 comparisons:
 8. Full model versus Average-weight emotion ablation
 9. Full model versus Top-weight emotion ablation
 
-**Image swap (3)**
+**Image swap (4)**
 
 10. Anchored Correct-image emotion versus Swapped-image emotion
 11. Anchored Correct-image emotion versus No-image emotion
-12. Unanchored Correct-image emotion versus Swapped-image emotion
+12. Anchored No-image emotion versus Swapped-image emotion
+13. Unanchored Correct-image emotion versus Swapped-image emotion
 
-**Family size: 12.** The unanchored no-image condition is undefined and is not
-tested. The pooled faithfulness conclusions survive. Bottom-weight ablation is
-nonsignificant; Average- and Top-weight ablations are significant in both
-metrics. The PLCC daggers missing from the Average and Top rows should be added.
+**Family size: 13.** The unanchored no-image condition is undefined and is not
+tested. Adding the direct anchored control comparison changes no existing
+significance decision. The pooled faithfulness conclusions survive, including
+that No-image outperforms Swapped-image input in both metrics. Bottom-weight
+ablation is nonsignificant; Average- and Top-weight ablations are significant
+in both metrics.
 
 ## Weight-alignment table
 

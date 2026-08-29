@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.data import CORE7, DOMAINS
-from src.utils.metrics import sem
+from src.utils.metrics import participant_cluster_bootstrap, sem
 
 #: A coefficient this small is zero for our purposes, and the sign of a zero is
 #: not a fact about anyone's taste. Ridge shrinks weak emotions all the way
@@ -121,7 +121,8 @@ def summarize(per_unit: pd.DataFrame) -> pd.DataFrame:
         absw = allw.abs()
         r["avg_mean"] = float(absw.mean())
         r["avg_sd"] = float(absw.std(ddof=1))
-        r["avg_sem"] = float(sem(absw))
+        r["avg_sem"] = participant_cluster_bootstrap(
+            absw, g["user_id"])["sem"]
         # the average of the three domain shares, not the pooled share. The
         # domains are 129 units each so the two agree to a rounding place, but
         # which one is reported has to be stated rather than inferred.

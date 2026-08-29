@@ -93,10 +93,15 @@ Every command writes to `output/<experiment name>/`, with `config.json`
 recording every setting that could affect the numbers, alongside
 `per_unit.csv` (raw, one row per evaluation unit) and `summary.csv`
 (mean/sd/best-flag/significance, ready to paste into a spreadsheet).
-The released `output/` directory contains the per-unit inputs used by the
-paper tables, the fitted formulas needed by the faithfulness diagnostics,
-the Holm-adjusted statistical audit, and the final figures. This lets a
-reviewer verify the reported summaries without repeating model training.
+The reviewer release keeps a compact numerical core rather than every
+intermediate run folder: `raw_all_final.csv`, the consolidated formula-unit
+and formula-image databases, Stage-1 accuracy, the GT upper-bound units,
+emotion-importance units, the two-row reference-bound summary, and the
+Holm-adjusted audit.
+This lets a reviewer regenerate and inspect the reported summaries without
+repeating model training. Generated LaTeX fragments and figures are not
+required in the release; the CSVs contain every reported numerical value, and
+the figure script rebuilds the plotted results directly from them.
 
 
 ## Verifying results match the paper
@@ -143,11 +148,27 @@ If a run gives numbers far from these, something is wrong.
 
 For three-seed experiments, seeds are averaged within each
 `(fold, domain, user_id, model configuration)` unit before any test or SEM is
-computed. Domain-specific tests therefore use 129 paired units; pooled
-Average tests concatenate the three domains and use 387 user-domain units.
+computed. Domain-specific tests therefore use 129 paired units. For the pooled
+Average, the three domains are retained as one cluster per participant; SEM,
+confidence intervals, and p-values use a 10,000-sample participant-cluster
+bootstrap over 129 participants.
 `output/statistics/holm_corrected.csv` is the source of truth for raw and
 Holm-adjusted p-values. `output/statistics/HOLM_FAMILY_MAP.md` gives the
 human-readable family definitions used for every table.
+
+The consolidated databases and their provenance manifests are rebuilt with:
+
+```bash
+uv run python -m src.experiments.make_raw_all_final \
+  --output output/raw_all_final.csv \
+  --manifest-output output/raw_all_sources.csv
+uv run python -m src.experiments.make_formula_database --output-dir output
+uv run python -m src.experiments.make_release_auxiliary --output-dir output
+```
+
+For a non-destructive release audit, point `--output`, `--manifest-output`,
+and the statistics/table/figure scripts at a separate directory as documented
+in `docs/RELEASE_MANIFEST.md`.
 
 ## Adding a new experiment
 

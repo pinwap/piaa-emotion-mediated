@@ -18,9 +18,9 @@ notebooks/*
 no_use/*
 
 # ---------------------------------------------------------------------------
-# Results excluded from the public repo. Every table in the paper is still
-# fully reproducible from what remains: output/raw_all_final.csv carries a
-# source_file column, and all 22 per-run files it names are kept.
+# Results excluded from the public repo. The trained-model tables remain
+# reproducible from output/raw_all_final.csv, whose 25 physical source files
+# and SHA-256 hashes are recorded in output/raw_all_sources.csv.
 # ---------------------------------------------------------------------------
 
 # Aggregate raw_all.csv dumps, superseded by output/raw_all_final.csv.
@@ -40,4 +40,6 @@ output/logical_capybara_modal_all_runs/
 
 # scratch
 _to_delete/
+tmp/
+scratch_*.tex
 *.STALE-SAFE-TO-DELETE

@@ -49,7 +49,8 @@ import pandas as pd
 from scipy.stats import rankdata, spearmanr
 
 from src.data.data import CORE7, DOMAINS
-from src.utils.metrics import mean_sd, plcc, sem, srocc, wilcoxon_paired
+from src.utils.metrics import (mean_sd, participant_cluster_bootstrap, plcc,
+                               sem, srocc, wilcoxon_paired)
 
 N_SWAP = 5
 SWAP_SEED = 0
@@ -60,13 +61,11 @@ def _load(cfg):
     d = Path(cfg.output_dir) / "formulas"
     need = ["user_formula.csv", "per_image.csv"]
     missing = [f for f in need if not (d / f).exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"{d} is missing {missing}. Run `main.py formulas` first: this "
-            f"experiment reads the fitted formulas rather than refitting, so "
-            f"that what it interprets is what the tables report.")
-    units = pd.read_csv(d / "user_formula.csv")
-    images = pd.read_csv(d / "per_image.csv", low_memory=False)
+    if not missing:
+        units = pd.read_csv(d / "user_formula.csv")
+        images = pd.read_csv(d / "per_image.csv", low_memory=False)
+    else:
+        units, images = _load_consolidated(Path(cfg.output_dir), "anchored")
     images["stimulus_id"] = images["stimulus_id"].astype(str)
     return units, images
 
@@ -75,6 +74,31 @@ def _load_formula_dir(d: Path):
     """Load a separately fitted formula set (for example, variant plain)."""
     units = pd.read_csv(d / "user_formula.csv")
     images = pd.read_csv(d / "per_image.csv", low_memory=False)
+    images["stimulus_id"] = images["stimulus_id"].astype(str)
+    return units, images
+
+
+def _load_consolidated(output_dir: Path, setting: str):
+    """Load one setting from the two-table release formula database."""
+    unit_path = output_dir / "formula_units_final.csv"
+    image_path = output_dir / "formula_images_final.csv"
+    missing = [p.name for p in [unit_path, image_path] if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"{output_dir} is missing {missing}. Run `main.py formulas` and "
+            "`python -m src.experiments.make_formula_database` first."
+        )
+    units = pd.read_csv(unit_path, low_memory=False)
+    images = pd.read_csv(image_path, low_memory=False)
+    if "setting" not in units or "setting" not in images:
+        raise ValueError("consolidated formula tables require a setting column")
+    units = units[units.setting == setting].copy()
+    images = images[images.setting == setting].copy()
+    if len(units) != 387 or len(images) != 19_350:
+        raise ValueError(
+            f"{setting}: expected 387 formula units and 19,350 image rows, "
+            f"got {len(units)} and {len(images)}"
+        )
     images["stimulus_id"] = images["stimulus_id"].astype(str)
     return units, images
 
@@ -106,6 +130,13 @@ def run(cfg, pipeline=None):
     plain_dir = Path(cfg.output_dir) / "unanchored" / "formulas"
     if (plain_dir / "user_formula.csv").exists():
         plain_units, plain_images = _load_formula_dir(plain_dir)
+    elif (Path(cfg.output_dir) / "formula_units_final.csv").exists():
+        plain_units, plain_images = _load_consolidated(
+            Path(cfg.output_dir), "unanchored"
+        )
+    else:
+        plain_units = plain_images = None
+    if plain_units is not None:
         swap_plain = formula_swap(plain_units, plain_images)
         swap_plain.to_csv(out_dir / "formula_swap_unanchored.csv", index=False)
         img_swap_plain = image_swap(plain_units, plain_images)
@@ -337,10 +368,11 @@ def summarize_ablation(b: pd.DataFrame) -> pd.DataFrame:
         for m in ("srocc", "plcc"):
             mean, sd = mean_sd(b[f"{k}_{m}"])
             r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
-            r[f"{m}_sem"] = sem(b[f"{k}_{m}"])
+            r[f"{m}_sem"] = participant_cluster_bootstrap(
+                b[f"{k}_{m}"], b["user_id"])["sem"]
             r[f"{m}_drop"] = float(b[f"full_{m}"].mean() - b[f"{k}_{m}"].mean())
-            # paired test to full 
-            p = (wilcoxon_paired(b[f"full_{m}"], b[f"{k}_{m}"])
+            p = (participant_cluster_bootstrap(
+                    b[f"full_{m}"] - b[f"{k}_{m}"], b["user_id"])["p_value"]
                  if k != "full" else np.nan)
             r[f"{m}_p_vs_full"] = p
         rows.append(r)
@@ -355,8 +387,10 @@ def summarize_swap(b: pd.DataFrame) -> pd.DataFrame:
         for m in ("srocc", "plcc"):
             mean, sd = mean_sd(b[f"{k}_{m}"])
             r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
-            r[f"{m}_sem"] = sem(b[f"{k}_{m}"])
-            p = (wilcoxon_paired(b[f"own_{m}"], b[f"{k}_{m}"])
+            r[f"{m}_sem"] = participant_cluster_bootstrap(
+                b[f"{k}_{m}"], b["user_id"])["sem"]
+            p = (participant_cluster_bootstrap(
+                    b[f"own_{m}"] - b[f"{k}_{m}"], b["user_id"])["p_value"]
                  if k != "own" else np.nan)
             r[f"{m}_p_vs_own"] = p
             r[f"{m}_sig_vs_own"] = bool(np.isfinite(p) and p < 0.05)
@@ -372,12 +406,23 @@ def summarize_align(b: pd.DataFrame) -> pd.DataFrame:
                  pct_positive=100 * float((d["spearman"] > 0).mean()))
         for m in ("spearman", "pearson"):
             mean, sd = mean_sd(d[m])
-            s_sem = sem(d[m])
-            p = wilcoxon_paired(d[m], np.zeros(len(d)))
+            if dom == "ALL":
+                boot = participant_cluster_bootstrap(
+                    d[m], d["user_id"], alternative="greater")
+                s_sem = boot["sem"]
+                ci_lower = boot["ci95_lower"]
+                ci_upper = boot["ci95_upper"]
+                p = boot["p_value"]
+            else:
+                s_sem = sem(d[m])
+                ci_lower = float(mean - 1.96 * s_sem)
+                ci_upper = float(mean + 1.96 * s_sem)
+                p = wilcoxon_paired(
+                    d[m], np.zeros(len(d)), alternative="greater")
             r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
             r[f"{m}_sem"] = s_sem
-            r[f"{m}_ci95_lower"] = float(mean - 1.96 * s_sem)
-            r[f"{m}_ci95_upper"] = float(mean + 1.96 * s_sem)
+            r[f"{m}_ci95_lower"] = ci_lower
+            r[f"{m}_ci95_upper"] = ci_upper
             r[f"{m}_p"] = p
             r[f"{m}_sig"] = bool(np.isfinite(p) and p < 0.05)
         rows.append(r)
@@ -396,11 +441,18 @@ def summarize_image_swap(b: pd.DataFrame) -> pd.DataFrame:
         for m in ("srocc", "plcc"):
             mean, sd = mean_sd(b[f"{k}_{m}"])
             r[f"{m}_mean"], r[f"{m}_sd"] = mean, sd
-            r[f"{m}_sem"] = sem(b[f"{k}_{m}"])
+            finite = np.isfinite(b[f"{k}_{m}"].to_numpy(float))
+            r[f"{m}_sem"] = (participant_cluster_bootstrap(
+                b.loc[finite, f"{k}_{m}"], b.loc[finite, "user_id"])["sem"]
+                if finite.any() else np.nan)
             r[f"{m}_drop"] = float(
                 b[f"correct_{m}"].mean() - b[f"{k}_{m}"].mean())
-            p = (wilcoxon_paired(b[f"correct_{m}"], b[f"{k}_{m}"])
-                 if k != "correct" else np.nan)
+            differences = b[f"correct_{m}"] - b[f"{k}_{m}"]
+            difference_finite = np.isfinite(differences.to_numpy(float))
+            p = (participant_cluster_bootstrap(
+                    differences[difference_finite],
+                    b.loc[difference_finite, "user_id"])["p_value"]
+                 if k != "correct" and difference_finite.any() else np.nan)
             r[f"{m}_p_vs_correct"] = p
             r[f"{m}_sig_vs_correct"] = bool(np.isfinite(p) and p < 0.05)
         rows.append(r)

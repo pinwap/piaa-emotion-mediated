@@ -7,6 +7,7 @@ from the audited Holm results produced by make_holm_statistics.py.
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -20,12 +21,16 @@ from src.experiments.make_holm_statistics import (
     ROOT,
     UNIT,
     _validate_and_average,
+    mlp_architecture_data,
 )
 from src.utils.metrics import participant_cluster_bootstrap
 
 
 OUT_DIR = ROOT / "output" / "statistics"
 HOLM = OUT_DIR / "holm_corrected.csv"
+FAITHFULNESS_DIR = ROOT / "output" / "faithfulness"
+DISTRIBUTION_RAW = (ROOT / "output" / "efficiency" / "clip" /
+                    "raw_C_memo-emo_sd-emo_hist.csv")
 DOMAIN_ORDER = [("art", "Artwork"), ("fashion", "Fashion"),
                 ("landscape", "Landscape"), (None, "Average")]
 
@@ -278,9 +283,104 @@ def efficiency(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
     _write("table_efficiency_corrected.tex", lines)
 
 
+def mlp_baseline(raw: pd.DataFrame) -> None:
+    """Descriptive Ridge/MLP comparison moved out of the main table."""
+    rows = [
+        ("population", "ridge", "Population", "Ridge"),
+        ("population", "mlp", "Population", "MLP"),
+        ("identity", "ridge", "Direct", "Ridge"),
+        ("identity", "mlp", "Direct", "MLP"),
+        ("random", "ridge", "Random", "Ridge"),
+        ("random", "mlp", "Random", "MLP"),
+        ("pca", "ridge", "PCA", "Ridge"),
+        ("pca", "mlp", "PCA", "MLP"),
+        ("emotion", "ridge", "Hybrid (ours)", "Ridge"),
+        ("emotion_mlp", "mlp", "Hybrid (ours)", "MLP"),
+    ]
+    keep = {(m, h) for m, h, _, _ in rows}
+    selected = raw[
+        (raw.backbone == "qwen8b") & (raw.variant == "C")
+        & (raw.n_train == 100)
+        & pd.Series([(m, h) in keep for m, h in zip(raw.mediator, raw["head"])],
+                    index=raw.index)
+    ]
+    averaged = _validate_and_average(
+        selected, ["mediator", "head"], "MLP baseline LaTeX"
+    )
+    lines = [
+        r"\begin{tabular}{ll cc cc cc cc}", r"\toprule",
+        (r"\multirow{2}{*}{Mediator} & \multirow{2}{*}{Head} & "
+         r"\multicolumn{2}{c}{Artwork} & \multicolumn{2}{c}{Fashion} & "
+         r"\multicolumn{2}{c}{Landscape} & \multicolumn{2}{c}{Average} \\"),
+        r"\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}",
+        r"& & SROCC & PLCC & SROCC & PLCC & SROCC & PLCC & SROCC & PLCC \\",
+        r"\midrule",
+    ]
+    previous = None
+    for mediator, head, label, head_label in rows:
+        if previous is not None and label != previous:
+            lines.append(r"\addlinespace")
+        cells = []
+        for domain, _ in DOMAIN_ORDER:
+            for metric in METRICS:
+                mean, sem = _stats(
+                    averaged, {"mediator": mediator, "head": head}, domain, metric
+                )
+                cells.append(_cell(mean, sem))
+        shown = rf"\multirow{{2}}{{*}}{{{label}}}" if label != previous else ""
+        lines.append(f"{shown} & {head_label} & " + " & ".join(cells) + r" \\")
+        previous = label
+    lines += [r"\bottomrule", r"\end{tabular}", "",
+              r"% Descriptive table: no significance markers.",
+              r"% Qwen3-VL 8B, population-anchored, N=100; seeds averaged within units."]
+    _write("tableS_mlp_baseline_corrected.tex", lines)
+
+
+def mlp_architecture(raw: pd.DataFrame) -> None:
+    """Descriptive sequential/joint MLP architecture table."""
+    ridge = raw[
+        (raw.backbone == "qwen8b") & (raw.variant == "C")
+        & (raw.n_train == 100) & (raw.mediator == "emotion")
+        & (raw["head"] == "ridge")
+    ]
+    ridge = _validate_and_average(ridge, ["mediator", "head"],
+                                  "MLP architecture Ridge LaTeX")
+    mlp = mlp_architecture_data(ROOT)
+    rows = [
+        ("ridge", "Ridge $\\to$ Ridge (main)"),
+        ("joint_lambda_0.1", r"MLP $\to$ MLP, joint $\lambda=0.1$"),
+        ("joint_lambda_1", r"MLP $\to$ MLP, joint $\lambda=1$"),
+        ("joint_lambda_10", r"MLP $\to$ MLP, joint $\lambda=10$"),
+        ("sequential", r"MLP $\to$ MLP, sequential"),
+    ]
+    lines = [
+        r"\begin{tabular}{@{}l cc cc cc cc@{}}", r"\toprule",
+        (r"\multirow{2}{*}{Stage-1 $\to$ Stage-2} & "
+         r"\multicolumn{2}{c}{Artwork} & \multicolumn{2}{c}{Fashion} & "
+         r"\multicolumn{2}{c}{Landscape} & \multicolumn{2}{c}{Average} \\"),
+        r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}",
+        r"& SROCC & PLCC & SROCC & PLCC & SROCC & PLCC & SROCC & PLCC \\",
+        r"\midrule",
+    ]
+    for i, (condition, label) in enumerate(rows):
+        source = ridge if condition == "ridge" else mlp
+        query = {"mediator": "emotion", "head": "ridge"} if condition == "ridge" else {"condition": condition}
+        cells = []
+        for domain, _ in DOMAIN_ORDER:
+            for metric in METRICS:
+                mean, sem = _stats(source, query, domain, metric)
+                cells.append(_cell(mean, sem, bold=(condition == "ridge")))
+        if i in {1, 4}:
+            lines.append(r"\addlinespace")
+        lines.append(label + " & " + " & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}", "",
+              r"% Descriptive table: no significance markers.",
+              r"% Average SEM uses a 129-participant cluster bootstrap."]
+    _write("tableS_mlp_architecture_corrected.tex", lines)
+
+
 def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
-    raw = pd.read_csv(ROOT / "output" / "efficiency" / "clip" /
-                      "raw_C_memo-emo_sd-emo_hist.csv", low_memory=False)
+    raw = pd.read_csv(DISTRIBUTION_RAW, low_memory=False)
     mediators = [("population", "Population"), ("identity", "Direct"),
                  ("emotion", "Hybrid 7-d"), ("emotion_sd", "Hybrid 14-d"),
                  ("emotion_hist", "Hybrid 35-d")]
@@ -364,7 +464,7 @@ def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
 
 
 def faithfulness(holm: pd.DataFrame) -> None:
-    base = ROOT / "output" / "faithfulness"
+    base = FAITHFULNESS_DIR
     conditions = [
         ("Anchored", pd.read_csv(base / "formula_swap.csv")),
         ("Unanchored", pd.read_csv(base / "formula_swap_unanchored.csv")),
@@ -453,7 +553,7 @@ def faithfulness(holm: pd.DataFrame) -> None:
 
 
 def weight_alignment(holm: pd.DataFrame) -> None:
-    data = pd.read_csv(ROOT / "output" / "faithfulness" / "weight_vs_empirical.csv")
+    data = pd.read_csv(FAITHFULNESS_DIR / "weight_vs_empirical.csv")
     lines = [r"\begin{tabular}{l cc}", r"\toprule",
              r"Domain & Spearman & Pearson \\", r"\midrule"]
     for domain, label in DOMAIN_ORDER:
@@ -474,13 +574,31 @@ def weight_alignment(holm: pd.DataFrame) -> None:
     _write("table_weight_alignment_corrected.tex", lines)
 
 
-def main() -> int:
-    raw = pd.read_csv(RAW, low_memory=False)
-    holm = pd.read_csv(HOLM)
+def main(argv=None) -> int:
+    global OUT_DIR, FAITHFULNESS_DIR, DISTRIBUTION_RAW
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--raw", type=Path, default=RAW)
+    parser.add_argument("--holm", type=Path, default=HOLM)
+    parser.add_argument("--output-dir", type=Path, default=OUT_DIR)
+    parser.add_argument("--faithfulness-dir", type=Path,
+                        default=FAITHFULNESS_DIR)
+    parser.add_argument("--distribution-raw", type=Path,
+                        default=DISTRIBUTION_RAW)
+    args = parser.parse_args(argv)
+
+    OUT_DIR = args.output_dir
+    FAITHFULNESS_DIR = args.faithfulness_dir
+    DISTRIBUTION_RAW = args.distribution_raw
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    raw = pd.read_csv(args.raw, low_memory=False)
+    holm = pd.read_csv(args.holm)
     table1(raw, holm)
     anchor(raw, holm)
     backbone(raw, holm)
     efficiency(raw, holm)
+    mlp_baseline(raw)
+    mlp_architecture(raw)
     distribution(raw, holm)
     faithfulness(holm)
     weight_alignment(holm)

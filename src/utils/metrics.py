@@ -37,7 +37,7 @@ def evaluate(y_true, y_pred) -> dict[str, float]:
     return {k: f(y_true, y_pred) for k, f in METRICS.items()}
 
 
-def wilcoxon_paired(a, b) -> float:
+def wilcoxon_paired(a, b, *, alternative: str = "two-sided") -> float:
     """Paired Wilcoxon signed-rank -> p-value.
 
     Two models compared on the same units (user x domain), so this is
@@ -50,7 +50,7 @@ def wilcoxon_paired(a, b) -> float:
     a, b = a[ok], b[ok]
     if len(a) < 5 or np.sum(np.abs(a - b)) == 0:
         return np.nan
-    return float(wilcoxon(a, b, method="approx").pvalue)
+    return float(wilcoxon(a, b, method="approx", alternative=alternative).pvalue)
 
 
 def mean_sd(values) -> tuple[float, float]:

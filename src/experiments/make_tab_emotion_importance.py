@@ -14,11 +14,12 @@ people and still not matter to the deployable model, if Stage 1 cannot
 recover it, and the change in rank between the two blocks is where that
 shows up.
 
-Each cell is the mean absolute Stage-2 weight, its SEM across user-domain
-units, and in parentheses the share of users whose weight is positive. The
-share separates "everybody agrees about this concept" from "people disagree
-about its direction": a large mean at a near-even split is a different
-finding from a large mean at 98% agreement.
+Each cell is the mean absolute Stage-2 weight and, in parentheses, the share
+of units whose weight is positive. Domain SEMs use 129 participants; the
+Average SEM uses a participant-cluster bootstrap that retains all three
+domains for each resampled participant. The share separates "everybody agrees
+about this concept" from "people disagree about its direction": a large mean
+at a near-even split is a different finding from a large mean at 98% agreement.
 
 Usage:  python -m src.experiments.make_tab_emotion_importance
 """

@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.data.data import DOMAINS                        # noqa: E402
 from src.modeling.heads import make_head                 # noqa: E402
-from src.utils.metrics import plcc, sem, srocc           # noqa: E402
+from src.utils.metrics import (participant_cluster_bootstrap, plcc, sem,
+                               srocc)                    # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKBONE, N_TRAIN = "qwen8b", 100
@@ -44,7 +45,9 @@ def run(cfg, pipe, ds) -> pd.DataFrame:
             for unit in pipe.iter_units(fold, dom, feats, n_train=N_TRAIN):
                 h = make_head("ridge", cfg).fit(unit.E_train, unit.y_train)
                 p = h.predict(unit.E_eval)
-                rows.append(dict(domain=dom, srocc=srocc(unit.y_eval, p),
+                rows.append(dict(fold=fold.index, domain=dom,
+                                 user_id=unit.user_id,
+                                 srocc=srocc(unit.y_eval, p),
                                  plcc=plcc(unit.y_eval, p),
                                  eff_dof=h.effective_dof()))
         print(f"  fold {fold.index} done ({len(rows)} units)", flush=True)
@@ -56,10 +59,14 @@ def run(cfg, pipe, ds) -> pd.DataFrame:
     out = []
     r = {"label": "GT emotions", "stage2": "Ridge",
          "eff_dof": f"{gt.eff_dof.mean():.1f}"}
-    for key, d in [(dom, gt[gt.domain == dom]) for dom in DOMAINS] + [("avg", gt)]:
+    for key, d in [(dom, gt[gt.domain == dom]) for dom in DOMAINS]:
         for m in ("srocc", "plcc"):
             r[f"{key}_{m}_mean"] = float(d[m].mean())
             r[f"{key}_{m}_sem"] = float(sem(d[m]))
+    for m in ("srocc", "plcc"):
+        pooled = participant_cluster_bootstrap(gt[m], gt["user_id"])
+        r[f"avg_{m}_mean"] = pooled["mean"]
+        r[f"avg_{m}_sem"] = pooled["sem"]
     out.append(r)
 
     r = {"label": "Test--retest reliability", "stage2": "---", "eff_dof": "---"}

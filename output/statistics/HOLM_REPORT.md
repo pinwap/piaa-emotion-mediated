@@ -13,8 +13,10 @@ contain no hypothesis tests.
 
 For results read from `output/raw_all_final.csv`, seeds 0, 1, and 2 are first
 averaged within each `(fold, domain, user_id, model configuration)` unit. Each
-domain-specific test therefore uses 129 paired units. The pooled Average test
-uses 387 seed-averaged user-domain units, not 1,161 seed-level rows.
+domain-specific test therefore uses 129 paired units. For the pooled Average,
+the three domain observations from each participant are retained as a cluster;
+SEM, confidence intervals, and p-values use a 10,000-sample participant-cluster
+bootstrap over 129 participants rather than treating 387 rows as independent.
 
 The faithfulness files already contain one row per user-domain unit and
 therefore require no additional seed aggregation.
@@ -35,7 +37,7 @@ is kept separate from each domain-specific family.
 | Anchored vs unanchored | metric; pooled Average; both halves combined | 8 |
 | Five-backbone table | domain x metric | 5 |
 | Efficiency | domain x metric | 8 |
-| Faithfulness | domain x metric; correlated panels combined | 12 |
+| Faithfulness | domain x metric; correlated panels combined | 13 |
 | Weight alignment | domain x correlation metric | 1 |
 
 The full definitions, including every contrast and input file, are listed in
@@ -45,7 +47,7 @@ The full definitions, including every contrast and input file, are listed in
 
 - The five-backbone pooled-Average claim survives. Hybrid exceeds Population
   for all five backbones in both metrics. The largest Holm-adjusted p-value is
-  0.002207 for SROCC and 0.000599 for PLCC.
+  .0106 for SROCC and .0046 for PLCC; the summary is therefore all $p<.05$.
 - In Main Table 1, 4 cells that were significant before correction are no
   longer significant: Artwork PLCC for Hybrid versus Population, and Fashion
   SROCC for Hybrid versus Direct, Population, and Random.
@@ -56,9 +58,11 @@ The full definitions, including every contrast and input file, are listed in
   N=50 and N=100 for both metrics after correction. It does not do so at N=10
   or N=25. Thus the statement "from N >= 50" survives for the pooled Average.
 - All pooled-Average faithfulness conclusions survive. Holding the
-  bottom-weight emotion does not cause a significant performance change, as
-  expected. Formula swap, top/average concept ablation, and image swap claims
-  remain significant after correction.
+  bottom-weight emotion does not cause a significant performance change.
+  Formula swap, top/average concept ablation, and image swap claims remain
+  significant after correction. The newly explicit No-image versus
+  Swapped-image contrast is also significant in both metrics; adding it to the
+  family changes no existing decision.
 - All weight-alignment tests remain significant.
 - In the MLP architecture table, the joint lambda=1 differences from the
   sequential MLP no longer survive correction for Artwork SROCC or Fashion
