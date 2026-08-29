@@ -111,21 +111,20 @@ def run(cfg, err: str = "sem", domain_split: bool = False):
         titles = ["Artwork", "Fashion", "Landscape"]
         # sharey too: with free y-limits fashion looks much closer to the
         # other domains than it is, which is the opposite of the point
-        fig, axes = plt.subplots(1, 4, figsize=(7.0, 1.85), sharex=True, sharey=True)
+        fig, axes = plt.subplots(1, 4, figsize=(7.0, 1.35), sharex=True, sharey=True)
         for col, (dom, title) in enumerate(zip(domains, titles)):
             plot_panel(axes[col], df, "srocc", n_list, err, domain=dom, annotate_crossover=True)
-            axes[col].set_title(title, fontsize=8.5)
-            # plot_panel(axes[1, col], df, "plcc", n_list, err, domain=dom, annotate_crossover=True)
-            axes[col].set_xlabel("ratings/user", fontsize=7.5)
+            axes[col].set_title(title, fontsize=8.0, pad=3)
+            axes[col].set_xlabel("ratings / user", fontsize=7.0, labelpad=2)
+            axes[col].tick_params(labelsize=6.5, pad=2)
         plot_panel(axes[3], df, "srocc", n_list, err, annotate_crossover=True)
-        axes[3].set_title("Average", fontsize=8.5)
-        # plot_panel(axes[1, 3], df, "plcc", n_list, err, annotate_crossover=True)
-        axes[3].set_xlabel("ratings per user", fontsize=7.5)
+        axes[3].set_title("Average", fontsize=8.0, pad=3)
+        axes[3].set_xlabel("ratings / user", fontsize=7.0, labelpad=2)
+        axes[3].tick_params(labelsize=6.5, pad=2)
         
-        axes[0].set_ylabel("SROCC")
-        # axes[1, 0].set_ylabel("PLCC")
-        axes[0].legend(fontsize=6.5, loc="lower left")
-        fig.tight_layout()
+        axes[0].set_ylabel("SROCC", fontsize=7.5, labelpad=2)
+        axes[0].legend(fontsize=5.8, loc="lower left", framealpha=0.85, handlelength=1.2)
+        fig.tight_layout(pad=0.3)
         save(fig, cfg.figures_dir / f"fig_efficiency_domains_{err}")
     
     else: #only average 
