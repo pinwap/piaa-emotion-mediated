@@ -1,7 +1,9 @@
 """Recompute paper significance tests from seed-level per-unit results.
 
-Seeds are averaged within each (fold, domain, user_id) unit before paired
-Wilcoxon signed-rank tests.
+Seeds are averaged within each (fold, domain, user_id) unit before testing.
+Domain-specific columns use paired Wilcoxon signed-rank tests.  Pooled Average
+columns use a participant-cluster bootstrap so that a participant's three
+correlated domain rows are always resampled as one block.
 
 The audited blocks are:
 * Table 1: Hybrid versus Population, Direct, Random, and PCA (Ridge only).
@@ -13,9 +15,9 @@ The audited blocks are:
   architecture, and distribution-valued mediator results. Their complete
   family definitions are written beside the corrected p-values.
 
-The pooled Average is formed by concatenating the 129 seed-averaged units
-from each of the three domains (387 user-domain units).  It is corrected as
-its own family rather than mixed into any domain-specific family.
+The pooled Average contains 387 user-domain rows but only 129 independent
+participants.  It is corrected as its own family rather than mixed into any
+domain-specific family.
 
 Usage:
     python -m src.experiments.make_holm_statistics
@@ -28,7 +30,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
 
-from src.utils.metrics import wilcoxon_paired
+from src.utils.metrics import participant_cluster_bootstrap, wilcoxon_paired
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -167,15 +169,22 @@ def _paired_row(
 
     a = paired[f"{metric}_candidate"]
     b = paired[f"{metric}_reference"]
-    p_raw = wilcoxon_paired(a, b)
+    bootstrap = None
+    if domain is None:
+        user_ids = paired.index.get_level_values("user_id")
+        bootstrap = participant_cluster_bootstrap(a - b, user_ids)
+        p_raw = bootstrap["p_value"]
+    else:
+        p_raw = wilcoxon_paired(a, b)
     if not np.isfinite(p_raw):
-        raise ValueError(f"{table}/{contrast}: Wilcoxon returned a non-finite p-value")
+        raise ValueError(f"{table}/{contrast}: test returned a non-finite p-value")
 
     domain_label = "average" if domain is None else domain
     return {
         "table": table,
         "block": block,
-        "test": "paired_wilcoxon",
+        "test": ("participant_cluster_bootstrap" if domain is None
+                 else "paired_wilcoxon"),
         "alternative": "two-sided",
         "domain": domain_label,
         "metric": metric,
@@ -184,9 +193,13 @@ def _paired_row(
         "candidate": candidate_label,
         "reference": reference_label,
         "n_units": len(paired),
+        "n_participants": (bootstrap["n_participants"] if bootstrap else len(paired)),
         "candidate_mean": float(a.mean()),
         "reference_mean": float(b.mean()),
         "mean_difference": float((a - b).mean()),
+        "difference_sem": (bootstrap["sem"] if bootstrap else np.nan),
+        "difference_ci95_lower": (bootstrap["ci95_lower"] if bootstrap else np.nan),
+        "difference_ci95_upper": (bootstrap["ci95_upper"] if bootstrap else np.nan),
         "p_raw": p_raw,
     }
 
@@ -528,7 +541,7 @@ def _paired_columns_row(
     contrast: str,
 ) -> dict:
     d = data if domain is None else data[data.domain == domain]
-    paired = d[[candidate_column, reference_column]].dropna()
+    paired = d[["user_id", candidate_column, reference_column]].dropna()
     expected_n = 387 if domain is None else 129
     if len(paired) != expected_n:
         raise ValueError(
@@ -537,14 +550,22 @@ def _paired_columns_row(
         )
     a = paired[candidate_column].to_numpy(float)
     b = paired[reference_column].to_numpy(float)
-    p_raw = wilcoxon_paired(a, b)
+    bootstrap = None
+    if domain is None:
+        bootstrap = participant_cluster_bootstrap(
+            a - b, paired["user_id"].to_numpy()
+        )
+        p_raw = bootstrap["p_value"]
+    else:
+        p_raw = wilcoxon_paired(a, b)
     if not np.isfinite(p_raw):
-        raise ValueError(f"{table}/{contrast}: non-finite Wilcoxon p-value")
+        raise ValueError(f"{table}/{contrast}: test returned a non-finite p-value")
     domain_label = "average" if domain is None else domain
     return {
         "table": table,
         "block": block,
-        "test": "paired_wilcoxon",
+        "test": ("participant_cluster_bootstrap" if domain is None
+                 else "paired_wilcoxon"),
         "alternative": "two-sided",
         "domain": domain_label,
         "metric": metric,
@@ -553,9 +574,13 @@ def _paired_columns_row(
         "candidate": candidate_label,
         "reference": reference_label,
         "n_units": len(paired),
+        "n_participants": (bootstrap["n_participants"] if bootstrap else len(paired)),
         "candidate_mean": float(np.mean(a)),
         "reference_mean": float(np.mean(b)),
         "mean_difference": float(np.mean(a - b)),
+        "difference_sem": (bootstrap["sem"] if bootstrap else np.nan),
+        "difference_ci95_lower": (bootstrap["ci95_lower"] if bootstrap else np.nan),
+        "difference_ci95_upper": (bootstrap["ci95_upper"] if bootstrap else np.nan),
         "p_raw": p_raw,
     }
 
@@ -663,21 +688,29 @@ def weight_alignment_rows() -> list[dict]:
         d = data if domain is None else data[data.domain == domain]
         expected_n = 387 if domain is None else 129
         for metric in ["spearman", "pearson"]:
-            values = d[metric].to_numpy(float)
-            values = values[np.isfinite(values)]
+            finite = np.isfinite(d[metric].to_numpy(float))
+            values = d.loc[finite, metric].to_numpy(float)
             if len(values) != expected_n:
                 raise ValueError(
                     f"weight alignment/{domain or 'average'}/{metric}: "
                     f"expected {expected_n}, got {len(values)}"
                 )
-            p_raw = float(wilcoxon(
-                values, np.zeros(len(values)), method="approx", alternative="greater"
-            ).pvalue)
+            bootstrap = None
+            if domain is None:
+                bootstrap = participant_cluster_bootstrap(
+                    values, d.loc[finite, "user_id"].to_numpy(), alternative="greater"
+                )
+                p_raw = bootstrap["p_value"]
+            else:
+                p_raw = float(wilcoxon(
+                    values, np.zeros(len(values)), method="approx", alternative="greater"
+                ).pvalue)
             domain_label = "average" if domain is None else domain
             rows.append({
                 "table": "table_weight_alignment",
                 "block": "alignment_vs_zero",
-                "test": "one_sample_wilcoxon",
+                "test": ("participant_cluster_bootstrap" if domain is None
+                         else "one_sample_wilcoxon"),
                 "alternative": "greater",
                 "domain": domain_label,
                 "metric": metric,
@@ -686,9 +719,13 @@ def weight_alignment_rows() -> list[dict]:
                 "candidate": f"{metric.capitalize()} alignment",
                 "reference": "Zero",
                 "n_units": len(values),
+                "n_participants": (bootstrap["n_participants"] if bootstrap else len(values)),
                 "candidate_mean": float(np.mean(values)),
                 "reference_mean": 0.0,
                 "mean_difference": float(np.mean(values)),
+                "difference_sem": (bootstrap["sem"] if bootstrap else np.nan),
+                "difference_ci95_lower": (bootstrap["ci95_lower"] if bootstrap else np.nan),
+                "difference_ci95_upper": (bootstrap["ci95_upper"] if bootstrap else np.nan),
                 "p_raw": p_raw,
             })
     return rows
@@ -707,7 +744,9 @@ def apply_holm(rows: list[dict]) -> pd.DataFrame:
     columns = [
         "table", "block", "test", "alternative", "domain", "metric",
         "family_id", "family_size", "contrast", "candidate", "reference",
-        "n_units", "candidate_mean", "reference_mean", "mean_difference",
+        "n_units", "n_participants", "candidate_mean", "reference_mean",
+        "mean_difference", "difference_sem", "difference_ci95_lower",
+        "difference_ci95_upper",
         "p_raw", "p_holm",
         "reject_holm_0_05",
     ]

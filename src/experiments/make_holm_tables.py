@@ -21,6 +21,7 @@ from src.experiments.make_holm_statistics import (
     UNIT,
     _validate_and_average,
 )
+from src.utils.metrics import participant_cluster_bootstrap
 
 
 OUT_DIR = ROOT / "output" / "statistics"
@@ -58,10 +59,18 @@ def _p_cell(value: float) -> str:
     return r"$<.0001$" if value < 0.0001 else f"${_short(value, 4)}$"
 
 
-def _mean_sem(values: pd.Series) -> tuple[float, float]:
+def _mean_sem(values: pd.Series, participant_ids: pd.Series | None = None) -> tuple[float, float]:
     values = values.dropna().astype(float)
     if len(values) not in {129, 387}:
         raise ValueError(f"expected 129 or 387 unit values, got {len(values)}")
+    if len(values) == 387:
+        if participant_ids is None:
+            raise ValueError("Average SEM requires participant IDs for cluster bootstrap")
+        ids = participant_ids.loc[values.index]
+        result = participant_cluster_bootstrap(values, ids)
+        if result["n_participants"] != 129 or result["rows_per_participant"] != 3:
+            raise ValueError("Average must contain 129 participants x 3 domains")
+        return float(result["mean"]), float(result["sem"])
     return float(values.mean()), float(values.std(ddof=1) / np.sqrt(len(values)))
 
 
@@ -71,7 +80,8 @@ def _stats(data: pd.DataFrame, query: dict, domain: str | None, metric: str):
         selected = selected[selected[column] == value]
     if domain is not None:
         selected = selected[selected.domain == domain]
-    return _mean_sem(selected[metric])
+    ids = selected["user_id"] if domain is None else None
+    return _mean_sem(selected[metric], ids)
 
 
 def _sig(holm: pd.DataFrame, table: str, domain: str | None, metric: str,
@@ -145,7 +155,7 @@ def table1(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
                                    bold=np.isclose(mean, best[(domain, metric)])))
         lines.append(f"{label} & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Holm-adjusted paired Wilcoxon p < .05 versus Hybrid Ridge."]
+              r"% \dagger: Holm-adjusted p < .05 versus Hybrid Ridge (paired Wilcoxon per domain; participant-cluster bootstrap for Average)."]
     _write("table1_corrected.tex", lines)
 
 
@@ -185,7 +195,7 @@ def anchor(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
         delta = means[("C", "srocc")] - means[("plain", "srocc")]
         lines.append(f"{label} & " + " & ".join(cells) + f" & ${delta:+.3f}$ " + r"\\")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Holm-adjusted paired Wilcoxon p < .05 versus Hybrid in the same anchoring condition."]
+              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Hybrid in the same anchoring condition."]
     _write("table_anchor_corrected.tex", lines)
 
 
@@ -222,7 +232,7 @@ def backbone(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
         if bi != len(BACKBONES) - 1:
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Hybrid versus Population, Holm-adjusted paired Wilcoxon p < .05. Direct is descriptive."]
+              r"% \dagger: Hybrid versus Population, Holm-adjusted p < .05 (paired Wilcoxon per domain; participant-cluster bootstrap for Average). Direct is descriptive."]
     _write("tableS2_backbone_corrected.tex", lines)
 
 
@@ -263,8 +273,8 @@ def efficiency(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
         if ni != len(budgets) - 1:
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% Mean \pm SEM across seed-averaged units (n=129 per domain; n=387 Average).",
-              r"% \dagger: Holm-adjusted paired Wilcoxon p < .05 versus Population at the same N."]
+              r"% Domain SEM uses 129 participants; Average SEM uses a 129-participant cluster bootstrap with three domains per participant.",
+              r"% \dagger: Holm-adjusted p < .05 versus Population at the same N (paired Wilcoxon per domain; participant-cluster bootstrap for Average)."]
     _write("table_efficiency_corrected.tex", lines)
 
 
@@ -311,8 +321,8 @@ def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
             cells.append(_cell(mean, sem, marker=marker))
         lines.append(str(n_train) + " & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% Values are mean \pm SEM across 387 seed-averaged user-domain units.",
-              r"% \dagger: Holm-adjusted paired Wilcoxon p < .05 versus Population.",
+              r"% Values are mean \pm participant-clustered bootstrap SEM (129 participants, three domains each).",
+              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Population.",
               r"% One pooled-Average SROCC family contains all 12 Hybrid comparisons."]
     _write("tableS_distribution_corrected.tex", lines)
 
@@ -324,7 +334,7 @@ def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
         r"\begin{threeparttable}",
         (r"\caption{\textbf{Distribution-valued Stage-1 targets.} CLIP frozen, "
          r"population-anchored, ridge head, three seeds averaged within each of "
-         r"387 user--domain units. Widths are 7 (per-emotion mean), 14 (mean and "
+         r"387 user--domain rows from 129 participants. Widths are 7 (per-emotion mean), 14 (mean and "
          r"across-rater standard deviation), and 35 (7 emotions $\times$ 5 "
          r"rating-histogram bins).}"),
         r"\label{tab:distribution}",
@@ -332,9 +342,9 @@ def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
         r"\setlength{\tabcolsep}{3.5pt}",
         *lines[:tabular_end],
         r"\begin{tablenotes}[flushleft]\footnotesize",
-        (r"\item Values are mean $\pm$ SEM over 387 seed-averaged user--domain "
-         r"units."),
-        (r"\item $^\dagger$ Holm-adjusted two-sided paired Wilcoxon $p<.05$ "
+        (r"\item Values are mean $\pm$ participant-cluster bootstrap SEM over "
+         r"129 participants, with their three domains resampled as a block."),
+        (r"\item $^\dagger$ Holm-adjusted two-sided participant-cluster bootstrap $p<.05$ "
          r"versus Population. One family contains the 12 Hybrid comparisons: "
          r"three mediator widths at four rating budgets."),
         (r"\item At $N=100$, the 14-d and 7-d variants have nearly identical "
@@ -367,7 +377,8 @@ def faithfulness(holm: pd.DataFrame) -> None:
         mapping = [("own", "Own", "own"), ("pop", "Population mean", "population_mean"),
                    ("other", "Other user", "other_user")]
         for ri, (key, label, _) in enumerate(mapping):
-            means = [_mean_sem(frame[f"{key}_{m}"]) for m in METRICS]
+            means = [_mean_sem(frame[f"{key}_{m}"], frame["user_id"])
+                     for m in METRICS]
             perf = [_cell(mean, sem, bold=(key == "own")) for mean, sem in means]
             if key == "own":
                 pvals = ["---", "---"]
@@ -395,7 +406,9 @@ def faithfulness(holm: pd.DataFrame) -> None:
     for key, label, ref_label in ablations:
         cells = []
         for metric in METRICS:
-            mean, sem = _mean_sem(ablation[f"{key}_{metric}"])
+            mean, sem = _mean_sem(
+                ablation[f"{key}_{metric}"], ablation["user_id"]
+            )
             marker = ""
             if ref_label:
                 marker = "dagger" if _sig(
@@ -405,7 +418,7 @@ def faithfulness(holm: pd.DataFrame) -> None:
             cells.append(_cell(mean, sem, marker=marker, bold=(key == "full")))
         lines.append(label + " & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Holm-adjusted paired Wilcoxon p < .05 versus Full."]
+              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Full."]
     _write("table_faithfulness_ablation_corrected.tex", lines)
 
     image_tables = [("Anchored", pd.read_csv(base / "image_swap.csv"),
@@ -419,7 +432,9 @@ def faithfulness(holm: pd.DataFrame) -> None:
         for ri, (key, label, control) in enumerate(rowspec):
             cells = []
             for metric in METRICS:
-                mean, sem = _mean_sem(frame[f"{key}_{metric}"])
+                mean, sem = _mean_sem(
+                    frame[f"{key}_{metric}"], frame["user_id"]
+                )
                 marker = ""
                 if control:
                     suffix = " [Unanchored]" if setting == "Unanchored" else ""
@@ -433,7 +448,7 @@ def faithfulness(holm: pd.DataFrame) -> None:
         if ti == 0:
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Holm-adjusted paired Wilcoxon p < .05 versus Correct image in the same setting."]
+              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Correct image in the same setting."]
     _write("table_faithfulness_image_swap_corrected.tex", lines)
 
 
@@ -445,7 +460,9 @@ def weight_alignment(holm: pd.DataFrame) -> None:
         d = data if domain is None else data[data.domain == domain]
         cells = []
         for metric in ["spearman", "pearson"]:
-            mean, sem = _mean_sem(d[metric])
+            mean, sem = _mean_sem(
+                d[metric], d["user_id"] if domain is None else None
+            )
             marker = "dagger" if _sig(
                 holm, "table_weight_alignment", domain, metric,
                 f"{metric.capitalize()} alignment vs zero"

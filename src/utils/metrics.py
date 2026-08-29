@@ -78,6 +78,64 @@ def sem(values) -> float:
     return float(v.std(ddof=1) / np.sqrt(len(v)))
 
 
+def participant_cluster_bootstrap(
+    values,
+    participant_ids,
+    *,
+    n_boot: int = 10_000,
+    seed: int = 0,
+    null: float = 0.0,
+    alternative: str = "two-sided",
+) -> dict[str, float | int]:
+    """Bootstrap a pooled mean while keeping each participant's rows together.
+
+    ``values`` may contain several correlated observations per participant
+    (three domains in this project).  They are first averaged within
+    participant; bootstrap samples then resample participants, never individual
+    user-domain rows.  The returned p-value follows the empirical-tail rule
+    used in the manuscript audit.
+    """
+    v = np.asarray(values, float)
+    ids = np.asarray(participant_ids)
+    if v.ndim != 1 or ids.ndim != 1 or len(v) != len(ids):
+        raise ValueError("values and participant_ids must be aligned 1-D arrays")
+    ok = np.isfinite(v)
+    v, ids = v[ok], ids[ok]
+    if len(v) == 0:
+        raise ValueError("cluster bootstrap received no finite values")
+
+    unique_ids, inverse, counts = np.unique(ids, return_inverse=True,
+                                             return_counts=True)
+    if len(unique_ids) < 2:
+        raise ValueError("cluster bootstrap requires at least two participants")
+    if not np.all(counts == counts[0]):
+        raise ValueError("each participant must contribute the same number of rows")
+    cluster_sums = np.bincount(inverse, weights=v)
+    cluster_means = cluster_sums / counts
+
+    rng = np.random.default_rng(seed)
+    sampled = rng.integers(0, len(cluster_means), size=(n_boot, len(cluster_means)))
+    boot = cluster_means[sampled].mean(axis=1)
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+    if alternative == "two-sided":
+        p = 2.0 * min(np.mean(boot <= null), np.mean(boot >= null))
+    elif alternative == "greater":
+        p = np.mean(boot <= null)
+    elif alternative == "less":
+        p = np.mean(boot >= null)
+    else:
+        raise ValueError(f"unknown alternative: {alternative}")
+
+    return {
+        "mean": float(cluster_means.mean()),
+        "sem": float(boot.std(ddof=1)),
+        "ci95_lower": float(lo),
+        "ci95_upper": float(hi),
+        "p_value": float(min(1.0, p)),
+        "n_participants": int(len(unique_ids)),
+        "rows_per_participant": int(counts[0]),
+    }
+
 def effective_dof(X, alpha: float) -> float:
     """Ridge effective degrees of freedom: tr(Z(Z'Z + alpha*I)^-1 Z').
 

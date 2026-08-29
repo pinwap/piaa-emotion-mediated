@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from src.utils.plots import AMBER, BLUE, GREY, grid, save, setup
+from src.utils.metrics import participant_cluster_bootstrap
 
 METHODS = ("pop_zero", "direct", "hybrid")
 
@@ -28,11 +29,18 @@ def stats(df: pd.DataFrame, method: str, metric: str, n_list: list[int], err: st
         d = d[d.domain == domain]
     means, errs = [], []
     for n in n_list:
-        v = d[d.n_train == n][metric].to_numpy(float)
+        dn = d[d.n_train == n]
+        v = dn[metric].to_numpy(float)
         v = v[np.isfinite(v)]
         m, sd = v.mean(), v.std(ddof=1)
         means.append(m)
-        errs.append(sd / np.sqrt(len(v)) if err == "sem" else sd)
+        if err == "sem" and domain is None:
+            result = participant_cluster_bootstrap(
+                dn[metric].to_numpy(float), dn["user_id"].to_numpy()
+            )
+            errs.append(result["sem"])
+        else:
+            errs.append(sd / np.sqrt(len(v)) if err == "sem" else sd)
     return np.array(means), np.array(errs)
 
 

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from src.data.data import DOMAINS
 from src.utils.plots import BLUE, COL_WIDTH, GREY, AMBER, grid, save, setup, FULL_WIDTH
+from src.utils.metrics import participant_cluster_bootstrap
 
 DOM_LABEL = {"art": "Artwork", "fashion": "Fashion", "landscape": "Landscape"}
 GROUPS = DOMAINS + [None]
@@ -26,7 +27,11 @@ def grouped(df: pd.DataFrame, col: str, err: str) -> tuple[np.ndarray, np.ndarra
     means, errs = [], []
     for dom in GROUPS:
         d = df if dom is None else df[df.domain == dom]
-        m, e = stat(d[col], err)
+        if dom is None and err == "sem":
+            result = participant_cluster_bootstrap(d[col], d["user_id"])
+            m, e = result["mean"], result["sem"]
+        else:
+            m, e = stat(d[col], err)
         means.append(m)
         errs.append(e)
     return np.array(means), np.array(errs)
