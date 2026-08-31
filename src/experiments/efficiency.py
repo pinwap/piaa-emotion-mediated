@@ -4,14 +4,9 @@ Sweeps support size n (10/25/50/100) against a fixed eval set, so results are
 comparable across budgets, and reports every mediator against the population
 (GIAA) baseline.
 
-The sweep runs through Pipeline.run_grid, the same code path as Table 1, so
-one n is exactly a Table 1 run at a different support size: the personal
-hyperparameter is frozen per (fold, domain, mediator, head, n) on the
-validation user group, and the population row is the real GIAA head on raw
-features rather than a population formula read off the mediator. An earlier
-version of this file fitted heads with per-user RidgeCV and called the
-population formula on the emotion mediator "pop_zero"; neither matched Table
-1, so the two tables could not be read against each other.
+The sweep uses the same ``Pipeline.run_grid`` path as the primary comparison.
+The personal hyperparameter is frozen per (fold, domain, mediator, head, n)
+on validation users, and the population row is the shared raw-feature model.
 
 `--stage2 B/C` anchors the personal head on GIAA, which is the interesting
 case here: it asks at what support size a personalized model stops losing to
@@ -41,10 +36,8 @@ def _tag(variant, heads, mediators, backbone, folds=None) -> str:
     v = "" if variant in (None, "plain") else f"_{variant}"
     h = "" if list(heads) == ["ridge"] else "_" + "".join(x[0] for x in heads)
     b = "" if backbone in (None, "clip") else f"_{backbone}"
-    # The mediator part has to name the mediators, not count them: two
-    # different 3-mediator runs (e.g. emotion/emotion_sd/emotion_hist and
-    # emotion/emotion_sd/emotion_hist) both used to render as "_m3" and the
-    # second one silently overwrote the first.
+    # Encode mediator names rather than only their count so distinct subsets
+    # cannot share an output filename.
     if list(mediators) == MEDIATORS:
         m = ""
     else:
@@ -85,20 +78,16 @@ def run(cfg, pipeline, n_list: list[int], variant: str | None = None,
             d["n_train"], d["seed"], d["stage2_variant"] = n, seed, variant
             frames.append(d)
             selections.extend(pipeline.selection_records)
-            record(d, "efficiency", backbone=backbone or cfg.backbone,
+            record(d, "efficiency", db_path=cfg.output_dir / "raw_all.csv",
+                   backbone=backbone or cfg.backbone,
                    variant=variant, n_train=n)
 
-    # Two files per run and no more: the raw per-unit-per-seed rows, which
-    # every later table and figure can be rebuilt from, and the summary that
-    # is actually reported. The seed-averaged per-unit file that used to sit
-    # between them was never read by anything -- it is one groupby away from
-    # the raw file, and having it on disk mostly created doubt about which of
-    # the two was the real one.
+    # Store seed-level rows and the derived summary; seed-averaged units are
+    # reconstructed from the raw file when needed.
     raw = pd.concat(frames, ignore_index=True)
     raw.to_csv(out_dir / f"raw{tag}.csv", index=False)
-    # what every hyperparameter search in this run looked at, not just
-    # what it picked. `edge` names the axis a winner ran out of grid on,
-    # which is the difference between a choice and a boundary.
+    # Retain every evaluated hyperparameter candidate. ``edge`` identifies
+    # selections on a search-grid boundary.
     if selections:
         selection_log.write(selections, out_dir / f"selection{tag}.csv")
         print(f"[efficiency] selection log -> selection{tag}.csv "
@@ -108,17 +97,14 @@ def run(cfg, pipeline, n_list: list[int], variant: str | None = None,
     df = raw.groupby(key, as_index=False)[["ccc", "srocc", "plcc", "eff_dof"]].mean()
 
     if folds is not None:
-        # a partial run's summary would read like the whole experiment; the
-        # raw file is what ingest_runs.py merges, so stop here
+        # Partial fold runs are merged from their raw rows before summarizing.
         print(f"[efficiency] folds {folds} written -> raw{tag}.csv ({len(raw)} rows)")
         return df
 
     summary = summarize(df, n_list)
     summary.to_csv(out_dir / f"summary{tag}.csv", index=False)
-    cols = [c for c in summary.columns
-            if c in ("n_train", "mediator", "head", "n")
-            or c.endswith(("srocc_mean", "srocc_sig_vs_pop", "srocc_beats_pop"))]
-    print(summary[cols].to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    print(f"[efficiency] wrote {len(summary)} summary rows to "
+          f"{out_dir / f'summary{tag}.csv'}")
     return df
 
 
@@ -150,8 +136,7 @@ def summarize(df: pd.DataFrame, n_list: list[int]) -> pd.DataFrame:
                          else participant_cluster_bootstrap(
                              j[m] - j[f"{m}_pop"],
                              j.index.get_level_values("user_id"))["p_value"])
-                    # the question the reviewer asks: does personalization beat the
-                    # population model at this support size, and is it real?
+                    # Direction and uncorrected paired test versus Population.
                     r[f"{m}_beats_pop"] = bool(len(j) and
                                                j[m].mean() > j[f"{m}_pop"].mean())
                     r[f"{m}_sig_vs_pop"] = bool(np.isfinite(p) and p < 0.05)

@@ -11,16 +11,15 @@ They all train **sequentially**: the mediator is fit and frozen first, then
 the head is fit on whatever the mediator outputs. Not end-to-end.
 
 *** where hyperparameters come from ***
-Both `fit` methods take an optional `val=(X_val, y_val)`, and that decides
-which of the two selection rules applies:
-
-  val given (a SHARED component, e.g. the population/GIAA head) -> the
-    hyperparameter is scored on the held-out validation *user group*, which
-    is disjoint from both train and test users.
-  val=None (a PERSONAL component, i.e. a per-user head) -> selected inside
-    that user's own support set only. The validation group is other people,
-    so it cannot speak to one user's taste; what matters is that the user's
-    evaluation images are never touched, and they aren't.
+In the reported pipeline, shared heads receive `val=(X_val, y_val)` and are
+selected on held-out validation-group images. Personal-head candidates are
+evaluated by `Pipeline.select_personal_hyperparam`: each candidate is fitted
+on every validation user's support set and scored on that user's disjoint
+50-image evaluation set, then one value is frozen for the corresponding
+fold/domain/condition/budget and passed here as `frozen_alpha` or `frozen_lr`.
+The `val=None` RidgeCV/LassoCV paths are fallbacks for standalone diagnostics,
+including the optimistic ground-truth-emotion reference; they are not the
+selection path for the paper's predictive model rows.
 """
 from __future__ import annotations
 
@@ -155,11 +154,8 @@ class SparseLinearHead(Head):
     """Lasso / ElasticNet personal head -- linear like ridge, but it can set a
     coefficient to exactly zero.
 
-    Worth having as its own row: at small support sizes the ridge head spreads
-    a little weight over all 7 emotions, while a sparse head keeps only the
-    ones the user's ratings actually support. That is both a different
-    bias-variance trade and a more readable formula, which is the property
-    this paper is arguing for.
+    This supplies a distinct bias--variance and sparsity comparison with the
+    ridge head.
 
     effective_dof is the number of non-zero coefficients, the standard
     unbiased estimate for the lasso, so it stays comparable with the ridge
@@ -232,9 +228,11 @@ def make_mlp(cfg, lr, seed: int, scale: bool = True, max_iter=None):
     """The one place an MLP is constructed, so the extractor and the predictor
     cannot drift apart. One hidden layer of cfg.mlp_hidden units in both.
 
-    Two things are selected, the learning rate and the epoch budget, and both
-    are selected the same way: on a validation user group disjoint from the
-    training and test users. Weight decay stays fixed at cfg.mlp_alpha.
+    The candidate is represented as (learning rate, epoch budget) so a future
+    experiment can search both axes with the same validation protocol.  The
+    reported experiment fixes the epoch grid to the single value 500 and
+    therefore selects only the learning rate. Weight decay stays fixed at
+    cfg.mlp_alpha.
 
     Both of sklearn's own stopping rules are off, and they are off because
     each takes its signal from data this protocol reserves for something
@@ -264,9 +262,8 @@ class MLPHead(Head):
     Pipeline.select_personal_hyperparam freezes one rate per (fold, domain,
     mediator, n_train) on the validation user group and passes it in as
     `frozen_lr`, exactly the way the ridge penalty arrives as `frozen_alpha`.
-    Choosing it from the user's own support set is the behaviour the reviewer
-    asked us to remove, so fit() refuses to run without a frozen rate rather
-    than quietly falling back to it.
+    ``fit`` requires a validation-selected frozen rate rather than selecting
+    it from the test user's support set.
 
     `scale=False` is for the anchored case, where the training-group scaler
     has already been applied by _ResidualHead and standardizing a second time
@@ -284,9 +281,11 @@ class MLPHead(Head):
         self._epochs = np.nan
 
     def fit(self, M, y, val=None, frozen_lr=None, **_):
-        """`frozen_lr` is an (lr, epochs) pair. A bare number is still
-        accepted and means "this rate, for the full cfg.mlp_max_iter
-        budget", which is what the earlier fixed-budget runs did."""
+        """Fit with a validation-selected ``(learning rate, epochs)`` pair.
+
+        A scalar remains supported as shorthand for the configured fixed
+        epoch budget.
+        """
         if frozen_lr is None:
             if val is None:
                 raise ValueError(
@@ -340,9 +339,12 @@ class MLPHead(Head):
 
     @property
     def epochs_(self) -> float:
-        """The budget this head was given, which is now a selected value
-        rather than a constant. n_iter_ reports what it actually spent; the
-        two agree because neither stopping rule is active."""
+        """The budget this head was given.
+
+        It is 500 in the reported fixed-budget experiment. ``n_iter_`` reports
+        what the optimizer actually spent; the two agree because neither
+        stopping rule is active.
+        """
         return float(self._epochs)
 
 

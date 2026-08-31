@@ -3,11 +3,8 @@
 Features are pre-extracted to .npz (see src/data/extract_*.py if you need
 to redo it). Classes here just load and index by stimulus_id.
 
-*** leakage warning ***
-A fine-tuned CLIP backbone must use the **per-fold** version
-(clip_ftpf_overall_v4_fold{k}.npz), fine-tuned only on that fold's train
-users. Never use a version fine-tuned on all users -- that inflated SROCC
-from 0.432 to 0.534 during development.
+Fine-tuned CLIP features are loaded from a separate file for each fold; each
+file is fitted using that fold's training users only.
 """
 from __future__ import annotations
 
@@ -67,7 +64,7 @@ class PerFoldBackbone(Backbone):
 
     def features_for_fold(self, fold_index: int) -> dict[str, np.ndarray]:
         if fold_index not in self._cache:
-            self._cache = {}   # keep one fold at a time, don't blow up RAM
+            self._cache = {}   # retain only the active fold in memory
             self._cache[fold_index] = _load_npz(
                 self.dir / self.pattern.format(fold=fold_index))
         return self._cache[fold_index]

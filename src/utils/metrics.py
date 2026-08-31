@@ -86,21 +86,21 @@ def participant_cluster_bootstrap(
     seed: int = 0,
     null: float = 0.0,
     alternative: str = "two-sided",
-) -> dict[str, float | int]:
+) -> dict[str, float | int | None]:
     """Bootstrap a pooled mean while keeping each participant's rows together.
 
     ``values`` may contain several correlated observations per participant
-    (three domains in this project).  They are first averaged within
-    participant; bootstrap samples then resample participants, never individual
-    user-domain rows.  The returned p-value follows the empirical-tail rule
-    used in the manuscript audit.
+    (three domains in this project). Bootstrap samples resample participants
+    and retain all of each selected participant's finite rows, never individual
+    user-domain rows. The returned p-value uses empirical bootstrap tails.
     """
-    v = np.asarray(values, float)
+    v = np.array(values, dtype=float, copy=True)
     ids = np.asarray(participant_ids)
     if v.ndim != 1 or ids.ndim != 1 or len(v) != len(ids):
         raise ValueError("values and participant_ids must be aligned 1-D arrays")
-    ok = np.isfinite(v)
-    v, ids = v[ok], ids[ok]
+    finite = np.isfinite(v)
+    n_dropped = int((~finite).sum())
+    v, ids = v[finite], ids[finite]
     if len(v) == 0:
         raise ValueError("cluster bootstrap received no finite values")
 
@@ -108,14 +108,23 @@ def participant_cluster_bootstrap(
                                              return_counts=True)
     if len(unique_ids) < 2:
         raise ValueError("cluster bootstrap requires at least two participants")
-    if not np.all(counts == counts[0]):
-        raise ValueError("each participant must contribute the same number of rows")
     cluster_sums = np.bincount(inverse, weights=v)
     cluster_means = cluster_sums / counts
 
     rng = np.random.default_rng(seed)
     sampled = rng.integers(0, len(cluster_means), size=(n_boot, len(cluster_means)))
-    boot = cluster_means[sampled].mean(axis=1)
+    if np.all(counts == counts[0]):
+        # Equal cluster sizes reduce to a mean of participant-level means.
+        boot = cluster_means[sampled].mean(axis=1)
+        observed_mean = float(cluster_means.mean())
+        rows_per_participant: int | None = int(counts[0])
+    else:
+        # Undefined correlations may leave an incomplete participant cluster.
+        # Resample whole clusters and retain the pooled finite-row estimand.
+        boot = (cluster_sums[sampled].sum(axis=1) /
+                counts[sampled].sum(axis=1))
+        observed_mean = float(v.mean())
+        rows_per_participant = None
     lo, hi = np.percentile(boot, [2.5, 97.5])
     if alternative == "two-sided":
         p = 2.0 * min(np.mean(boot <= null), np.mean(boot >= null))
@@ -127,49 +136,44 @@ def participant_cluster_bootstrap(
         raise ValueError(f"unknown alternative: {alternative}")
 
     return {
-        "mean": float(cluster_means.mean()),
+        "mean": observed_mean,
         "sem": float(boot.std(ddof=1)),
         "ci95_lower": float(lo),
         "ci95_upper": float(hi),
         "p_value": float(min(1.0, p)),
         "n_participants": int(len(unique_ids)),
-        "rows_per_participant": int(counts[0]),
+        "rows_per_participant": rows_per_participant,
+        "min_rows_per_participant": int(counts.min()),
+        "max_rows_per_participant": int(counts.max()),
+        "n_dropped": n_dropped,
     }
 
-def effective_dof(X, alpha: float) -> float:
+def effective_dof(X, alpha: float, *, already_standardized: bool = False) -> float:
     """Ridge effective degrees of freedom: tr(Z(Z'Z + alpha*I)^-1 Z').
 
-    Computed on standardized features (the pipeline always standardizes
-    before RidgeCV). Only defined for linear heads.
+    The ordinary ridge head passes its raw support matrix, which is standardized
+    here exactly as its sklearn pipeline does. Population-anchored heads are
+    solved on a matrix transformed by the training-group scaler and must pass
+    ``already_standardized=True`` so that the fitted design is not transformed
+    a second time. Only defined for linear heads.
     """
     from sklearn.preprocessing import StandardScaler
-    Z = StandardScaler().fit_transform(np.asarray(X, float))
-    G = Z.T @ Z
-    p = G.shape[0]
-    return float(np.trace(Z @ np.linalg.solve(G + alpha * np.eye(p), Z.T)))
+    X = np.asarray(X, float)
+    Z = X if already_standardized else StandardScaler().fit_transform(X)
+    # The singular-value form is algebraically identical to the trace above,
+    # but avoids constructing and solving a p-by-p system for the 4,096-wide
+    # Direct head when the support set contains at most 100 rows.
+    singular_values = np.linalg.svd(Z, compute_uv=False)
+    eigenvalues = singular_values * singular_values
+    return float(np.sum(eigenvalues / (eigenvalues + float(alpha))))
 
 
 def tost_equivalence(a, b, delta: float, alpha: float = 0.05) -> dict:
     """Two one-sided tests: is `a` equivalent to `b` to within +/- delta?
 
-    A non-significant difference test does NOT mean two methods are the same
-    -- it means the data could not tell them apart, which is also what a
-    badly underpowered study looks like. The claim this paper actually wants
-    is stronger and directional: a 7-parameter head is *not meaningfully
-    worse* than a 512-parameter one. That is an equivalence claim, and TOST
-    is the test for it.
-
-    TOST rejects "the difference is at least delta in some direction" from
-    both sides. Both one-sided tests must pass at `alpha`, so the reported
-    p is the larger of the two. Rejecting both means the true mean
-    difference sits inside (-delta, +delta) at the chosen confidence.
-
-    delta has to be fixed on substantive grounds *before* looking at the
-    result -- the smallest SROCC gap that would matter -- not tuned until
-    the test passes. Choosing it afterwards turns TOST into a way of
-    proving whatever the data happens to show.
-
-    Paired: a and b are per-unit scores in the same order.
+    ``a`` and ``b`` are aligned per-unit scores. Both one-sided tests must
+    reject at ``alpha``; the returned p-value is the larger of the two. The
+    equivalence margin must be chosen independently of the observed result.
     """
     import numpy as np
     from scipy import stats

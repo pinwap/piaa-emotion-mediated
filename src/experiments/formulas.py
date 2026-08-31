@@ -1,17 +1,8 @@
-"""Fit every formula once, write them all down, and let the analyses read them.
+"""Fit and store the per-user formulas used by downstream diagnostics.
 
-Why this exists
----------------
-Three experiments used to fit their own heads: the efficiency sweep, the
-faithfulness checks and the emotion-importance table. Two of the three built
-theirs with `make_head("ridge", cfg).fit(M, y)`, which takes no anchor and
-picks its penalty per user with RidgeCV. So the model being interpreted was
-not the model being reported, and nothing in the output said so.
-
-This module fits the formulas once, under the variant the paper reports, and
-writes them out. Every downstream analysis then reads a CSV instead of fitting
-anything, which makes it impossible for the interpretation to drift away from
-the numbers in the tables.
+The module fits one canonical formula database for the requested Stage-2
+variant. Faithfulness and emotion-importance analyses read these stored fits
+without refitting a separate head.
 
 That works because the personal head is linear. Under the population anchor,
 
@@ -21,23 +12,19 @@ That works because the personal head is linear. Under the population anchor,
 so a prediction, an ablated prediction, or one user's formula applied to
 another user's images is arithmetic over saved numbers, not a refit.
 
-What the three weight vectors mean, because they are easy to confuse
--------------------------------------------------------------------
+Stored weight vectors
+---------------------
 w_pop     the population's own mapping from the seven emotions to a score,
           fitted on the pooled training group in the training group's units.
 delta     what population anchor fits: this user's departure from that mapping. It is
-          a residual fit, so ridge shrinks it toward zero and it is close to
-          symmetric about zero. The share of users with a positive delta is
-          therefore near 50% for every emotion whether or not people actually
-          disagree, and reading that share as "half of people like sad images"
-          reads the anchor, not the people.
+          a residual fit that ridge shrinks toward zero.
 w_total   w_pop + delta, the absolute personal mapping. This is literally the
           formula variant B fits and predicts with. Under population anchor the
           prediction uses y_pop on raw features instead, which carries more
           information than z . w_pop can, so w_total is the emotion-space
           reading of the same person rather than a term in C's prediction.
-          It is the vector whose sign says whether someone weights an emotion
-          up or down, and the one to compare against the ground-truth formula.
+          It is used for the reported emotion-space interpretation and the
+          comparison with the ground-truth formula.
 
 Outputs, all in output/formulas/:
 
@@ -78,8 +65,8 @@ def _fit_predict(head, M_tr, y_tr, M_ev, X_tr, X_ev, alpha):
     head.fit(M_tr, y_tr, frozen_alpha=alpha)
     return head.predict(M_ev)
 
-# extract bias (intercept) from head, Scikit-learn's RidgeCV have it as head._b, while our own heads have it as head._pipe[-1].intercept_
 def _intercept(head) -> float:
+    """Return the fitted intercept across the supported head wrappers."""
     if hasattr(head, "_b"):
         return float(head._b)
     pipe = getattr(head, "_pipe", None)
@@ -235,27 +222,6 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
     for name, df in frames.items():
         df.to_csv(out_dir / name, index=False)
 
-    print(f"\n{len(units)} units, {len(image_rows)} image rows -> {out_dir}")
-    for name, df in frames.items():
-        print(f"  {name:24s} {len(df):6d} rows")
-
-    print(f"\nmean SROCC {units['srocc'].mean():.4f}  "
-          f"(population {units['pop_srocc'].mean():.4f})")
-    print("\nper-domain mean SROCC")
-    print(units.groupby("domain")[["srocc", "pop_srocc", "gain_srocc"]]
-          .mean().round(4).to_string())
-
-    gt = frames["user_formula_gt.csv"]
-    tab = pd.DataFrame({
-        "delta_mean": [units[f"{e}_w"].mean() for e in CORE7],
-        "delta_pos%": [100 * (units[f"{e}_w"] > 0).mean() for e in CORE7],
-        "w_pop_mean": [units[f"{e}_wpop"].mean() for e in CORE7],
-        "w_total_pos%": [100 * (units[f"{e}_wtot"] > 0).mean() for e in CORE7],
-        "gt_pos%": [100 * (gt[f"{e}_w"] > 1e-9).mean() for e in CORE7],
-    }, index=CORE7)
-    print("\nshare of users with a positive coefficient")
-    print(tab.round(2).to_string())
-    print("\ndelta sits near 50% for every emotion because a residual fit is "
-          "centred on zero.\nw_total and gt are the columns whose sign says "
-          "whether someone weights an emotion up.")
+    counts = ", ".join(f"{name}={len(df):,}" for name, df in frames.items())
+    print(f"[formulas] wrote {counts} to {out_dir}")
     return frames

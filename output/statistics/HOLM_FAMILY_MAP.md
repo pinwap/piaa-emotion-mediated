@@ -8,13 +8,15 @@ complete raw and adjusted p-values.
 
 - For experiments with three-seed outputs, seeds 0, 1, and 2 are averaged
   within each user--domain unit before testing.
-- A domain-specific test contains 129 paired user units. A pooled Average test
-  contains 387 seed-averaged user--domain units.
-- The pooled Average is formed by concatenating the 129 seed-averaged units
-  from Artwork, Fashion, and Landscape. It is tested and corrected as its own
-  family; it is never included in a domain-specific family.
-- Model comparisons use two-sided paired Wilcoxon signed-rank tests. Weight
-  alignment uses its prespecified one-sided test against zero.
+- A domain-specific test contains 129 paired user units. A pooled Average
+  stores 387 seed-averaged user--domain values, but inference resamples 129
+  participants as clusters and retains all three domains for each selected
+  participant.
+- The Average is corrected as its own family and is never included in a
+  domain-specific family.
+- Domain-specific model comparisons use two-sided paired Wilcoxon signed-rank
+  tests; Average comparisons use the two-sided participant-cluster bootstrap.
+  Weight alignment uses its prespecified one-sided alternative against zero.
 - Holm--Bonferroni correction is applied separately within every family below.
   SROCC and PLCC are always separate families.
 - A dagger is retained only when the Holm-adjusted p-value is below .05.
@@ -99,10 +101,9 @@ Each family contains:
 **Family size: 8.** For the pooled Average, Hybrid significantly exceeds
 Population at N = 50 and N = 100 in both metrics, but not at N = 10 or N = 25.
 
-Manuscript action: regenerate this table rather than editing its markers by
-hand. The currently pasted detailed table computes SEM across seed-level rows;
-the means are unchanged, but SEM must be recomputed after within-unit seed
-averaging. No model retraining is required.
+The current detailed table is descriptive and uses the corrected
+participant-cluster Average SEM. The inferential decisions attached to the
+efficiency figure remain the eight comparisons in each family above.
 
 ## Faithfulness figure and detail tables
 
@@ -137,48 +138,32 @@ contains these 13 comparisons:
 tested. Adding the direct anchored control comparison changes no existing
 significance decision. The pooled faithfulness conclusions survive, including
 that No-image outperforms Swapped-image input in both metrics. Bottom-weight
-ablation is nonsignificant; Average- and Top-weight ablations are significant
-in both metrics.
+ablation is not detected for SROCC but is detected for PLCC; Average- and
+Top-weight ablations are significant in both metrics.
 
 ## Weight-alignment table
 
 **Eight families:** `{Artwork, Fashion, Landscape, Average} x
 {Spearman, Pearson}`.
 
-Each family contains one prespecified one-sided test asking whether the
+Each family contains one directional one-sided test asking whether the
 weight--empirical-effect alignment is greater than zero.
 
 **Family size: 1.** All tests remain significant. Holm makes no numerical
 change when a family contains one test.
 
-## MLP architecture supplementary table
+## Descriptive MLP architecture table
 
-**Eight families:** `{Artwork, Fashion, Landscape, Average} x {SROCC, PLCC}`.
+The current manuscript reports the MLP baseline and joint/sequential variants
+descriptively and carries no significance markers. The corresponding tests
+remain in `holm_corrected.csv` as an audit trail, but they are not used for a
+manuscript claim or displayed dagger.
 
-Each family compares the three joint-loss settings with the sequential MLP:
+## Descriptive distribution-valued mediator table
 
-1. Joint MLP, lambda = 0.1, versus sequential MLP
-2. Joint MLP, lambda = 1, versus sequential MLP
-3. Joint MLP, lambda = 10, versus sequential MLP
-
-**Family size: 3.** Ridge is reported descriptively and is not the inferential
-reference. Remove the former double daggers from joint lambda = 1 for Artwork
-SROCC and Fashion SROCC. The corrected tabular LaTeX is provided in
-`tableS_mlp_corrected.tex`.
-
-## Distribution-valued mediator supplementary table
-
-**One family:** pooled Average SROCC.
-
-The family contains Hybrid versus Population for all combinations of:
-
-- mediator width: 7-d, 14-d, and 35-d; and
-- rating budget: N = 10, 25, 50, and 100.
-
-**Family size: 12.** The significance decisions do not change. The corrected
-tabular LaTeX in `tableS_distribution_corrected.tex` reports daggers from the
-Holm-adjusted decisions. If exact p-values are reported elsewhere, they must
-be the adjusted values in `tableS_distribution_holm_corrected.csv`.
+The current manuscript reports this experiment descriptively and carries no
+significance markers. Historical exploratory contrasts remain in
+`holm_corrected.csv` for auditability but are not used for a manuscript claim.
 
 ## Descriptive results with no multiple-testing family
 
@@ -188,12 +173,11 @@ therefore receive no Holm correction and should not use inferential daggers.
 
 ## How to use the output files
 
-- `holm_corrected.csv`: source of truth for all 292 tests, including raw and
+- `holm_corrected.csv`: source of truth for all 300 tests, including raw and
   Holm-adjusted p-values.
 - `holm_dagger_changes.csv`: comparisons that had raw p < .05 but no longer
   pass after correction.
-- `tableS_mlp_corrected.tex`: corrected MLP `tabular`; paste it inside the
-  existing table environment and retain the existing caption and label.
-- `tableS_distribution_corrected.tex`: corrected distribution `tabular` with
-  Holm-based daggers; paste it inside the existing table environment and retain
-  the existing caption and label.
+- `tableS_mlp_baseline_corrected.tex` and
+  `tableS_mlp_architecture_corrected.tex`: current descriptive MLP tabulars.
+- `tableS_distribution_corrected.tex`: current descriptive distribution
+  tabular with participant-cluster Average SEM.

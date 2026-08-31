@@ -1,8 +1,4 @@
-"""One results database for every experiment: output/raw_all.csv.
-
-Every experiment calls `record()` when it finishes, so a later summary never
-has to hunt through output/<experiment>/ for the right per_unit file, guess a
-setting from a filename, or re-derive which of two files is canonical.
+"""Append per-unit experiment results to ``<output-dir>/raw_all.csv``.
 
 One row = one evaluation unit under one setting:
 
@@ -20,10 +16,8 @@ is already stored, on the full key, rounded to 4 decimal places:
                 not grow every time an experiment is re-run.
   different  -> BOTH rows are kept, each with its own recorded_at.
 
-The second case is not supposed to happen. Keeping both (rather than
-overwriting) is the point: it preserves the evidence that the same setting
-produced two answers, so the cause can be found instead of silently losing
-one of them. `conflicts()` lists them.
+Distinct results with the same key are retained with their provenance and can
+be inspected with ``conflicts()``.
 """
 from __future__ import annotations
 

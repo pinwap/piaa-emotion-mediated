@@ -23,7 +23,9 @@ dataset owner, then placed at `Dataset/maked/ratings.csv`.
 ### Rating scale conversion
 
 The 9 emotion items are stored 0-4 in the raw file; the loader adds 1 to
-match the 1-5 scale. `Aesthetic` (overall) is stored 0-6
+match the 1-5 scale. `Aesthetic` (overall) is stored 0-6 and remains on that
+coding internally. Adding 1 would not change SROCC or PLCC, the metrics used
+throughout the paper.
 ## Data split
 
 ```
@@ -67,8 +69,8 @@ Extracted in advance and stored as `.npz`, each with two keys:
 | file | backbone | dim | notes |
 |---|---|---|---|
 | `clip_features.npz` | CLIP ViT-B/16, frozen | 512 | default for every experiment |
-| `clip_ftpf_overall_v4_fold{0..4}.npz` | CLIP fine-tuned per fold | 768 | must be loaded per fold |
-| `clip_ftpf_emotion_v4_fold{0..4}.npz` | CLIP fine-tuned for emotion per fold | 768 | must be loaded per fold |
+| `clip_ftpf_overall_v4_fold{0..4}.npz` | CLIP fine-tuned per fold | 512 | must be loaded per fold |
+| `clip_ftpf_emotion_v4_fold{0..4}.npz` | CLIP fine-tuned for emotion per fold | 512 | must be loaded per fold |
 | `vlm4b_LT15.npz` | Qwen3-VL 4B, layer 15 | 2560 | |
 | `vlm_LT15.npz` | Qwen3-VL 8B, layer 15 | 4096 | |
 

@@ -1,35 +1,9 @@
-"""Every hyperparameter the pipeline selects, written down next to the results.
+"""Record validation scores for every hyperparameter candidate.
 
-Selection happens in four separate places -- the Stage-1 mediator, the
-population/GIAA head, the variant B/C anchor, and the personal Stage-2 head --
-and none of them used to leave a trace. The winner was passed to a constructor
-and dropped, so a finished run could not answer "which learning rate did the
-MLP head actually get, and by how much did it win?". Reconstructing it meant
-re-running the selection, which costs as much as the run itself.
-
-*** one row per candidate, not per winner ***
-The winner alone hides the two things that decide whether a selection means
-anything:
-
-  how far ahead it was   a grid where every candidate scores the same is a
-                         coin flip dressed up as a choice, and the value it
-                         returns is noise the next seed will overturn.
-  where it sat           a winner on the edge of the grid is a statement that
-                         the grid was too narrow, not that the value was
-                         optimal. `at_grid_edge` flags it.
-
-So `note()` writes the whole grid with the scores it was ranked by, and marks
-which row won. `selected == 1` recovers the one-row-per-selection view.
-
-*** how it is collected ***
-`Pipeline._eval_fold_domain` runs in a joblib worker process, so a module
-global here cannot travel back to the parent on its own. `collecting()` opens
-a buffer inside whichever process is running, the call sites deep in
-heads.py / mediators.py append to it through `note()` without having to know
-the fold, domain or seed they are under, and `_eval_fold_domain` returns the
-drained buffer alongside its result rows. Outside a `collecting()` block
-`note()` is a no-op, so ad-hoc scripts that call these functions directly are
-unaffected.
+Each selection stores the full candidate grid, scores, selected row, tie size,
+margin, and boundary status. ``Pipeline._eval_fold_domain`` may run in a
+joblib worker, so ``collecting`` uses context-local buffers that are returned
+with the fold-domain results. Calls outside a ``collecting`` block are no-ops.
 """
 from __future__ import annotations
 
@@ -251,8 +225,7 @@ def to_frame(records) -> pd.DataFrame:
 
 
 def write(records, path: Path | str) -> Path:
-    """Write the log for one run. Overwrites: a re-run of the same seed
-    re-selects from scratch, so its old log is not evidence of anything."""
+    """Write the complete selection log for one run."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     to_frame(records).to_csv(path, index=False)
@@ -260,8 +233,7 @@ def write(records, path: Path | str) -> Path:
 
 
 def summarize(records, kind: str = "selection") -> pd.DataFrame:
-    """The winners only, one row each -- what "which hyperparameter did this
-    run choose?" actually asks for. Pass kind=None for the diagnostics too."""
+    """Return one selected row per search; pass ``kind=None`` for diagnostics."""
     d = to_frame(records)
     if d.empty:
         return d

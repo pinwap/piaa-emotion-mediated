@@ -1,4 +1,4 @@
-"""Recompute paper significance tests from seed-level per-unit results.
+"""Recompute significance tests from seed-level per-unit results.
 
 Seeds are averaged within each (fold, domain, user_id) unit before testing.
 Domain-specific columns use paired Wilcoxon signed-rank tests.  Pooled Average
@@ -277,27 +277,17 @@ def mlp_rows(raw: pd.DataFrame) -> list[dict]:
     return rows
 
 
-def mlp_architecture_data(source_root: Path = ROOT) -> pd.DataFrame:
-    """Load and seed-average the MLP architecture/loss-weight ablation."""
-    frames = []
-
+def mlp_architecture_source_paths(source_root: Path = ROOT) -> list[Path]:
+    """Seed-level source files used to build the compact MLP database."""
+    paths = []
     for lam in ["0.1", "10"]:
         for seed in [0, 1, 2]:
-            path = (
+            paths.append(
                 source_root / "output" / "MLP_SWEEP" / f"joint_lam{lam}_s{seed}"
                 / "efficiency" / "qwen8b"
                 / "raw_C_m_qwen8b_memo_joint.csv"
             )
-            d = pd.read_csv(path, low_memory=False)
-            d = d[
-                (d.n_train == 100)
-                & (d.mediator == "emotion_joint")
-                & (d["head"] == "mlp")
-            ][UNIT + ["seed"] + METRICS].copy()
-            d["condition"] = f"joint_lambda_{lam}"
-            frames.append(d)
-
-    lambda_one_paths = [
+    paths.extend([
         source_root / "output" / "thundering_lobster_modal_all_runs" / "lr"
         / "1_mlp-mse-s0"
         / "raw_C_m_qwen8b_midentity-random-shuffled-pca-emo-emo_mlp-emo_joint.csv",
@@ -307,8 +297,52 @@ def mlp_architecture_data(source_root: Path = ROOT) -> pd.DataFrame:
         source_root / "output" / "thundering_lobster_modal_all_runs" / "lr"
         / "3_mlp-mse-s2"
         / "raw_C_m_qwen8b_midentity-random-shuffled-pca-emo-emo_mlp-emo_joint.csv",
-    ]
-    for path in lambda_one_paths:
+    ])
+    return paths
+
+
+def _validate_mlp_architecture_units(data: pd.DataFrame) -> pd.DataFrame:
+    required = set(UNIT + ["condition"] + METRICS)
+    missing = required.difference(data.columns)
+    if missing:
+        raise ValueError(f"MLP architecture database is missing {sorted(missing)}")
+    expected = {"joint_lambda_0.1", "joint_lambda_1",
+                "joint_lambda_10", "sequential"}
+    if set(data["condition"].astype(str)) != expected:
+        raise ValueError("MLP architecture database has unexpected conditions")
+    if len(data) != 4 * 387:
+        raise ValueError(f"expected 1,548 MLP architecture units, got {len(data)}")
+    if data.duplicated(["condition", *UNIT], keep=False).any():
+        raise ValueError("MLP architecture database has duplicate unit keys")
+    counts = data.groupby("condition").size()
+    if not (counts == 387).all():
+        raise ValueError("every MLP architecture condition must have 387 units")
+    return data.sort_values(["condition", *UNIT], kind="stable").reset_index(drop=True)
+
+
+def mlp_architecture_data(source_root: Path = ROOT, *,
+                          prefer_release: bool = True) -> pd.DataFrame:
+    """Load the compact release database or build it from seed-level runs."""
+    release = source_root / "output" / "mlp_architecture_units_final.csv"
+    if prefer_release and release.exists():
+        return _validate_mlp_architecture_units(
+            pd.read_csv(release, low_memory=False)
+        )
+
+    frames = []
+    paths = mlp_architecture_source_paths(source_root)
+    for lam, group in zip(["0.1", "10"], [paths[:3], paths[3:6]]):
+        for path in group:
+            d = pd.read_csv(path, low_memory=False)
+            d = d[
+                (d.n_train == 100)
+                & (d.mediator == "emotion_joint")
+                & (d["head"] == "mlp")
+            ][UNIT + ["seed"] + METRICS].copy()
+            d["condition"] = f"joint_lambda_{lam}"
+            frames.append(d)
+
+    for path in paths[6:]:
         d = pd.read_csv(path, low_memory=False)
         d = d[(d.n_train == 100) & (d["head"] == "mlp")]
         for mediator, condition in [
@@ -320,7 +354,8 @@ def mlp_architecture_data(source_root: Path = ROOT) -> pd.DataFrame:
             frames.append(x)
 
     combined = pd.concat(frames, ignore_index=True)
-    return _validate_and_average(combined, ["condition"], "MLP architecture")
+    averaged = _validate_and_average(combined, ["condition"], "MLP architecture")
+    return _validate_mlp_architecture_units(averaged)
 
 
 def mlp_architecture_rows(source_root: Path = ROOT) -> list[dict]:
@@ -350,19 +385,15 @@ def mlp_architecture_rows(source_root: Path = ROOT) -> list[dict]:
     return rows
 
 
-def distribution_rows(source_root: Path = ROOT) -> list[dict]:
+def distribution_rows(raw: pd.DataFrame) -> list[dict]:
     """Distribution-valued mediator variants versus Population."""
-    path = (
-        source_root / "output" / "efficiency" / "clip"
-        / "raw_C_memo-emo_sd-emo_hist.csv"
-    )
-    data = pd.read_csv(path, low_memory=False)
     budgets = [10, 25, 50, 100]
     mediators = ["population", "emotion", "emotion_sd", "emotion_hist"]
-    data = data[
-        data.n_train.isin(budgets)
-        & data.mediator.isin(mediators)
-        & (data["head"] == "ridge")
+    data = raw[
+        (raw.backbone == "clip") & (raw.variant == "C")
+        & raw.n_train.isin(budgets)
+        & raw.mediator.isin(mediators)
+        & (raw["head"] == "ridge")
     ].copy()
     averaged = _validate_and_average(
         data, ["n_train", "mediator", "head"], "Distribution-valued mediator"
@@ -798,7 +829,7 @@ def generate(
     result = apply_holm(
         table1_rows(raw)
         + mlp_architecture_rows(source_root)
-        + distribution_rows(source_root)
+        + distribution_rows(raw)
         + anchor_rows(raw)
         + backbone_rows(raw)
         + efficiency_rows(raw)
@@ -878,7 +909,7 @@ def generate(
         {
             "table": "tableS_mlp_architecture",
             "reported": "MLP architecture supplementary table",
-            "source": "output/MLP_SWEEP/ and output/thundering_lobster_modal_all_runs/",
+            "source": "output/mlp_architecture_units_final.csv",
             "family_by": "domain x metric",
             "tests_per_family": 3,
             "contrasts": ("joint lambda=0.1, 1 and 10 versus the sequential MLP; "
@@ -887,7 +918,7 @@ def generate(
         {
             "table": "tableS_distribution",
             "reported": "Distribution-valued Stage-1 targets",
-            "source": "output/efficiency/clip/raw_C_memo-emo_sd-emo_hist.csv",
+            "source": "output/raw_all_final.csv",
             "family_by": "metric; Average only",
             "tests_per_family": 12,
             "contrasts": ("Hybrid 7-d, 14-d and 35-d versus Population at "
@@ -939,7 +970,7 @@ def generate(
         {
             "table": "stage1_accuracy",
             "reported": "Stage-1 emotion accuracy",
-            "source": "output/stage1_emotion_acc/",
+            "source": "output/stage1_accuracy.csv",
             "family_by": "descriptive only",
             "tests_per_family": 0,
             "contrasts": "none",
@@ -947,7 +978,7 @@ def generate(
         {
             "table": "emotion_importance",
             "reported": "Emotion importance",
-            "source": "output/stage2_emotion_importance_matched/",
+            "source": "output/emotion_importance_units_final.csv",
             "family_by": "descriptive only",
             "tests_per_family": 0,
             "contrasts": "none",
@@ -955,23 +986,18 @@ def generate(
     ])
     definitions.to_csv(definitions_out, index=False)
 
-    print(f"wrote {len(result)} tests to {out}")
-    print(f"wrote Table S2 tests to {table_s2_out}")
-    print(f"wrote MLP tests to {mlp_out}")
-    print(f"wrote distribution tests to {distribution_out}")
-    print(f"wrote family summary to {family_out}")
-    print(f"wrote {len(changes)} dagger changes to {changes_out}")
-    print("family layout:")
-    print(result.groupby(["table", "family_size"]).family_id.nunique().to_string())
-    print("paired-unit counts:", sorted(result.n_units.unique()))
+    n_families = result["family_id"].nunique()
+    print(f"wrote {len(result)} tests across {n_families} families to {out}")
+    print(f"paired-unit counts: {sorted(result.n_units.unique())}")
+    print(f"auxiliary audits: {table_s2_out.name}, {mlp_out.name}, "
+          f"{distribution_out.name}, {family_out.name}, {changes_out.name}")
 
     priority = result[
         (result.table == "tableS2")
         & result.contrast.str.startswith("Hybrid vs Population")
     ][["domain", "metric", "contrast", "n_units", "candidate_mean", "reference_mean", "mean_difference", "p_raw", "p_holm",
        "reject_holm_0_05"]]
-    print("\nTable S2 priority contrasts:")
-    print(priority.to_string(index=False))
+    print(f"validated {len(priority)} Table S2 priority contrasts")
     return result
 
 

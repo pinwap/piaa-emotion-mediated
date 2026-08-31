@@ -15,12 +15,10 @@ Mediators used in the paper:
   shuffled  emotion predictions shuffled across images -- keeps the
             distribution, destroys the meaning
 
-*** reproducibility note ***
-random and shuffled draw from the same per-fold generator, in order: R
-first, then the permutation. Reorder or split the generator and the
-numbers change even though nothing about the method did.
-build_shared_mediators() always draws both, regardless of which mediators
-were actually requested.
+For deterministic reproduction, Random and Shuffled draw from the same
+per-fold generator in a fixed order: the projection first, followed by the
+permutation. ``build_shared_mediators`` draws both regardless of the requested
+subset.
 """
 from __future__ import annotations
 
@@ -41,8 +39,8 @@ def _shared_ridge(Xg, Yg, alphas, val=None, label=None):
     The mediator is a shared component, so its penalty is chosen on the
     held-out validation user group when one is available -- those users are
     disjoint from both the train users it is fit on and the test users it is
-    scored on. Falls back to RidgeCV's internal generalized CV only if no
-    validation data was passed (used by ad-hoc scripts, never by the paper).
+    scored on. If validation data are omitted, standalone diagnostic calls
+    fall back to RidgeCV's internal generalized CV.
 
     label is the mediator's name, so the selection log can say which of the
     Stage-1 ridges a penalty belongs to.
@@ -67,7 +65,7 @@ def _shared_ridge(Xg, Yg, alphas, val=None, label=None):
 def _shared_mlp(Xg, Yg, cfg, seed, val, label=None):
     """Stage-1 as a one-hidden-layer MLP, learning rate from the val group.
 
-    Deliberately the same shape as _shared_ridge: fit on the training group,
+    Uses the same protocol as ``_shared_ridge``: fit on the training group,
     score MSE on the held-out validation users, break the tie toward the
     smallest step, refit the winner. Weight decay and the epoch budget are
     fixed in advance (cfg.mlp_alpha, cfg.mlp_max_iter), so the rate is the
@@ -102,16 +100,11 @@ class _JointNet:
 
     Koh et al.'s *joint* concept bottleneck, at the population level. The
     score head reads the seven concepts, not the hidden layer, so the score
-    gradient is forced through the bottleneck -- that is what makes it joint.
-    Hanging the score head off the hidden layer instead would shape the trunk
-    while leaving the seven concepts under emotion supervision alone, which
-    is sequential training wearing a joint label.
+    gradient is forced through the bottleneck.
 
     Joint here means joint across the two *shared* stages, not end-to-end
     into the personal head. It is fit on the training group and frozen, like
-    every other Stage-1, and never on a test user's own ratings: a per-user
-    Stage-1 would be d*h weights fitted from ~100 samples, and the
-    seven-parameters-per-user claim the paper makes would be gone.
+    every other Stage-1, and never on a test user's own ratings.
 
     Hand-written because sklearn cannot express a head that reads the
     bottleneck and torch is not a dependency here. Initialization,
@@ -339,9 +332,7 @@ def build_shared_mediators(Xg: np.ndarray, Eg: np.ndarray, cfg, fold_index: int,
     K = cfg.mediator_width
     want = want or ["identity", "emotion", "pca", "random", "shuffled"]
 
-    # fixed RNG order: R first, then the permutation -- don't reorder, or the
-    # published random and shuffled numbers move even though nothing about
-    # the method did.
+    # Fixed RNG order: projection first, then permutation.
     rng_seed = fold_index if seed == 0 else fold_index + seed * 1_000_003
     rng = np.random.default_rng(rng_seed)
     R = rng.standard_normal((Xg.shape[1], K)) / np.sqrt(Xg.shape[1])

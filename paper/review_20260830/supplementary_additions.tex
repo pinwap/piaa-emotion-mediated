@@ -1,0 +1,576 @@
+% ============================================================================
+%  Supplementary additions for WACV 2027 submission #2267
+%
+%  Drop-in sections. Insert the block marked PATCH into the existing section
+%  it names, and append sections S5-S10 after the current "Faithfulness
+%  Diagnostics" section (before the bibliography).
+%
+%  Every number in this file was produced by
+%      python supp_v2_analyses.py --output-dir output \
+%             --ratings Dataset/maked/ratings.csv
+%  from the frozen release CSVs. Regenerate before submission and diff.
+%
+%  Requires (already in the supplementary preamble): threeparttable, booktabs,
+%  multirow, cleveref, bm.
+% ============================================================================
+
+
+% ---------------------------------------------------------------------------
+% PATCH 1 -- append to Section "Experimental and Statistical Details",
+%            subsection "Inference and Holm--Bonferroni Families"
+% ---------------------------------------------------------------------------
+
+Bootstrap $p$-values are obtained by inverting the percentile interval and are
+bounded below by $1/10{,}000$; values at that bound are reported as $p<.001$
+rather than as zero. Families were fixed before the audit was run rather than
+registered in advance, and we describe them as such throughout.
+
+The ridge pipeline over the emotion, PCA and identity mediators is
+deterministic given the split, so averaging over three seeds affects only the
+stochastic conditions: the random and shuffled mediators, and every MLP row.
+For the reported Hybrid rows the three seeds agree to all recorded digits.
+
+
+% ---------------------------------------------------------------------------
+% PATCH 2 -- append to the head of the "Faithfulness Diagnostics" section,
+%            before the formula-swap table
+% ---------------------------------------------------------------------------
+
+Two weight conventions appear in this section. The concept ablation reports the
+total emotion-space weight $\mathbf w_{\mathrm{tot}}=\mathbf w_{\mathrm{pop}}
++\boldsymbol\delta_u$, which is the quantity the main paper interprets; the
+image swap reconstructs the executed prediction and therefore uses
+$\boldsymbol\delta_u$. \Cref{tab:ablation_both} reports the ablation under both
+conventions so that the difference between the two readings is visible rather
+than described.
+
+Under the anchor, the no-image condition supplies a constant emotion vector, so
+the resulting predictor is $\hat y_{\mathrm{pop}}(x)$ plus a constant and its
+SROCC equals the Population row of Table~1 exactly ($.4391$ in both). That
+coincidence is arithmetic, not evidence, and \cref{sec:supp_nulls} reports the
+controls needed to read the image-swap result correctly.
+
+
+% ===========================================================================
+\section{Reference Quantities and Their Units}
+\label{sec:supp_reference}
+% ===========================================================================
+
+Table~1 of the main paper places two reference quantities beside the model
+rows. Neither is a condition being compared, and each is computed under a rule
+that differs from the compared rows. This section states both rules.
+
+\paragraph{Ground-truth emotions.}
+The GT-emotion reference replaces the Stage-1 predictions with the user's own
+emotion ratings and fits the usual personal ridge on top. Because it is a
+reference rather than a compared condition, its penalty is selected per user by
+generalized cross-validation on that user's own support set, whereas every
+compared row uses a penalty frozen on the validation user group. It is also
+unanchored: it regresses the raw rating rather than the residual. Both choices
+are deliberately generous, and the reported $0.749$ should be read as an
+optimistic bound on what perfect extraction would buy under a favourable
+selection rule, not as an achievable operating point.
+
+\paragraph{Test--retest reliability.}
+The correlation between a participant's two ratings of the same image measures
+how stable the target is. It can be computed in two ways, and they are not
+interchangeable. Pooling all $4{,}509$ repeat pairs into one correlation
+includes between-participant variance in rating level. Every model row in
+Table~1 is instead a within-participant correlation over that participant's
+$50$ evaluation images, averaged across units. To place the reliability on the
+same scale as the numbers it is meant to calibrate, we recompute it within each
+user--domain unit over that unit's repeated items and average over the $387$
+units.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Test--retest reliability of the aesthetic score, computed two ways.
+The within-unit row is the one comparable with Table~1.}
+\label{tab:retest_units}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{llcccc}
+\toprule
+Metric & Unit & Artwork & Fashion & Landscape & Average \\
+\midrule
+\multirow{2}{*}{SROCC}
+ & Pooled pairs      & .672 & .688 & .695 & .684 \\
+ & \textbf{Within unit} & \textbf{.577} & \textbf{.593} & \textbf{.584} & \textbf{.585} \\
+\midrule
+\multirow{2}{*}{PLCC}
+ & Pooled pairs      & .686 & .691 & .703 & .693 \\
+ & \textbf{Within unit} & \textbf{.589} & \textbf{.595} & \textbf{.607} & \textbf{.597} \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Pooled rows are one correlation over all repeat pairs in the domain
+($n=1{,}510$, $1{,}518$, $1{,}481$; $4{,}509$ overall). Within-unit rows average
+$387$ user--domain correlations; the Average column has a participant-cluster
+bootstrap interval of $[.550,.617]$ for SROCC.
+\item A unit contributes a median of $12$ repeated items (range $5$--$12$), so
+the within-unit estimate is itself noisy and biased downward relative to a
+long-form reliability. It is nonetheless the quantity on the same footing as
+the model rows, and differences in Table~1 should be read against it.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+% ===========================================================================
+\section{Mediator Content Across Visual Backbones}
+\label{sec:supp_mediator_backbone}
+% ===========================================================================
+
+The main paper compares the emotion bottleneck against a same-width
+unsupervised basis (PCA) and a content-free projection (Random) on the primary
+backbone. Because that comparison carries the paper's claim about what naming
+costs, we report it on all five backbones, in both anchoring settings.
+
+\begin{table*}[t]
+\centering
+\begin{threeparttable}
+\caption{Mediators across visual backbones at $N=100$, ridge heads. Mean SROCC
+over $387$ user--domain units, with participant-cluster bootstrap differences
+of Hybrid against each control.}
+\label{tab:mediator_backbone}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccccc ccc}
+\toprule
+& & \multicolumn{5}{c}{Mean SROCC} & \multicolumn{3}{c}{Hybrid $-$ control (95\% CI)} \\
+\cmidrule(lr){3-7}\cmidrule(lr){8-10}
+Setting & Backbone & Pop. & Direct & Hybrid & PCA & Random & vs.\ PCA & vs.\ Random & vs.\ Direct \\
+\midrule
+\multirow{5}{*}{Anchored}
+ & CLIP ViT-B/16      & .416 & .456 & .435 & \textbf{.445} & .421 & $-.010^{\ast}$ & $+.015^{\ast}$ & $-.021^{\ast}$ \\
+ & CLIP-ft (aesth.)   & .418 & .459 & .434 & \textbf{.447} & .423 & $-.013^{\ast}$ & $+.011^{\ast}$ & $-.025^{\ast}$ \\
+ & CLIP-ft (emotion)  & .406 & .449 & .423 & \textbf{.441} & .408 & $-.018^{\ast}$ & $+.015^{\ast}$ & $-.026^{\ast}$ \\
+ & Qwen3-VL 4B        & .436 & .470 & .448 & .454 & .443 & $-.006$ & $+.006$ & $-.022^{\ast}$ \\
+ & Qwen3-VL 8B        & .439 & .478 & \textbf{.459} & .458 & .447 & $+.001$ & $+.012^{\ast}$ & $-.018^{\ast}$ \\
+\midrule
+\multirow{5}{*}{Unanchored}
+ & CLIP ViT-B/16      & .416 & .400 & \textbf{.419} & .377 & .197 & $+.041^{\ast}$ & $+.222^{\ast}$ & $+.019^{\ast}$ \\
+ & CLIP-ft (aesth.)   & .418 & .449 & .427 & .425 & .282 & $+.002$ & $+.145^{\ast}$ & $-.022^{\ast}$ \\
+ & CLIP-ft (emotion)  & .406 & .437 & .419 & .421 & .298 & $-.002$ & $+.121^{\ast}$ & $-.018^{\ast}$ \\
+ & Qwen3-VL 4B        & .436 & .415 & \textbf{.436} & .362 & .256 & $+.073^{\ast}$ & $+.180^{\ast}$ & $+.021^{\ast}$ \\
+ & Qwen3-VL 8B        & .439 & .427 & \textbf{.446} & .382 & .256 & $+.063^{\ast}$ & $+.190^{\ast}$ & $+.019^{\ast}$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Differences are participant-cluster bootstrap means over $129$
+participants, retaining all three domains per participant. $\ast$ marks a
+95\% confidence interval excluding zero. This table is a scope check on a
+main-paper claim and is reported descriptively; it adds no contrasts to the
+correction families of Table~S3.
+\item Best predictive value per row block in bold. Population and Direct are
+identical across anchoring settings by construction only for Population, whose
+prediction does not depend on the personal head.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+Two readings follow, and they point in different directions.
+
+Under the population anchor the emotion basis is not uniformly preferable to an
+unsupervised basis of the same width. It matches PCA on the primary backbone
+and on Qwen3-VL 4B, and sits $.010$ to $.018$ SROCC below it on the three CLIP
+backbones, with confidence intervals excluding zero in all three cases. Where
+the anchor already supplies the population consensus, the additional content a
+named basis carries is small enough that an unsupervised rotation of the same
+width can be the better choice. The main paper's statement that naming costs
+nothing measurable under the anchor is therefore a property of the primary
+backbone rather than of the design, and we scope it accordingly.
+
+Without the anchor the ordering is stable across backbones. The named basis is
+better than PCA on three of the five and indistinguishable on the other two,
+and it exceeds a content-free projection of the same width by $.121$ to $.222$
+SROCC everywhere. What the emotion basis contributes is therefore real and
+consistent; what the anchor supplies overlaps with it.
+
+Hybrid remains above the unpersonalized baseline on every backbone in both
+settings except where the baseline and the unanchored personal model coincide,
+and it remains below Direct under the anchor on all five, with a gap of $.018$
+to $.026$ SROCC. Those two statements, which the main paper's claims rest on,
+are unaffected by the PCA result.
+
+
+% ===========================================================================
+\section{Equivalence Tests and Fold-Level Robustness}
+\label{sec:supp_equivalence}
+% ===========================================================================
+
+\subsection{Equivalence rather than absence of evidence}
+
+Two comparisons in the main paper are read as similarity: Hybrid against PCA
+under the anchor, and Hybrid against Direct within Landscape. A non-significant
+difference does not establish similarity; it is also what an underpowered
+comparison looks like. We therefore report two one-sided tests (TOST) against a
+margin fixed before the tests were run.
+
+We set the equivalence margin at $\Delta=.02$ SROCC. This is roughly twice the
+bootstrap standard error of a mediator mean at $N=100$ and below the
+Hybrid--Direct gap the paper describes as small, so a difference inside it
+would not change any statement in the paper. We report $\Delta=.01$ as a
+stricter secondary margin. The margin was not adjusted after inspecting the
+results.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Two one-sided tests for equivalence. Qwen3-VL 8B, anchored, ridge
+heads, $N=100$, paired over $129$ participants.}
+\label{tab:tost}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Contrast & Mean diff.\ (90\% CI) & $\Delta=.01$ & $\Delta=.02$ \\
+\midrule
+Hybrid $-$ PCA        & $+.001$ $[-.005,+.007]$ & equiv.\ ($p{=}.009$) & equiv.\ ($p{<}.001$) \\
+Hybrid $-$ Random     & $+.012$ $[+.005,+.019]$ & no ($p{=}.668$)      & equiv.\ ($p{=}.025$) \\
+Hybrid $-$ Direct     & $-.018$ $[-.024,-.013]$ & no ($p{=}.991$)      & no ($p{=}.319$) \\
+Hybrid $-$ Direct (Landscape) & $-.004$ $[-.012,+.004]$ & no ($p{=}.122$) & equiv.\ ($p{<}.001$) \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Rows 1--3 average the three domains within each participant before
+testing; row 4 uses the $129$ Landscape units. The interval shown is the
+$(1-2\alpha)$ interval TOST compares against $\pm\Delta$, at $\alpha=.05$.
+\item ``equiv.'' means both one-sided tests reject at $\alpha=.05$, so the true
+mean difference lies inside $(-\Delta,+\Delta)$. A blank result is not evidence
+of a difference; the difference test for these contrasts is reported in the
+main paper.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+The Hybrid--PCA difference is equivalent to zero within $.01$ SROCC on the
+primary backbone, which is a stronger statement than the non-significant
+difference the main paper reports and is what that passage should be read as
+claiming. The Hybrid--Direct gap is not equivalent to zero at either margin
+overall, confirming that the bottleneck's cost is real; within Landscape it is
+equivalent within $.02$ but not within $.01$, so the domain-specific claim
+holds at the coarser margin only.
+
+\subsection{Fold-level robustness}
+
+All test users in a fold share one Stage-1 mediator, one population head and
+one frozen personal-head hyperparameter, so units within a fold are not fully
+independent. Neither the paired Wilcoxon test nor the participant-cluster
+bootstrap carries fold-level variance. As a robustness check we collapse each
+fold to a single mean and test over the five folds.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Mean SROCC per fold, Qwen3-VL 8B, anchored, $N=100$.}
+\label{tab:fold_robust}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lccccc}
+\toprule
+Fold & 0 & 1 & 2 & 3 & 4 \\
+\midrule
+Population & .4155 & .4331 & .4532 & .4688 & .4225 \\
+Direct     & .4533 & .4731 & .4865 & .4889 & .4841 \\
+Hybrid     & .4273 & .4468 & .4736 & .4799 & .4647 \\
+PCA        & .4164 & .4603 & .4716 & .4788 & .4618 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Over the five folds: Hybrid exceeds Population in every fold
+(mean $+.020$, paired $t$, $p=.027$); Hybrid trails Direct in every fold
+(mean $-.019$, $p=.006$); Hybrid and PCA differ by $+.001$ on average
+($p=.870$). This check is descriptive and adds no contrasts to the correction
+families of Table~S3; it is reported because it reaches the same three
+conclusions as the unit-level tests under a coarser and more conservative
+resampling unit.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+% ===========================================================================
+\section{What the Personal Term Carries}
+\label{sec:supp_personal_share}
+% ===========================================================================
+
+Under the population anchor the executed model is
+$\hat y_u(x)=\hat y_{\mathrm{pop}}(x)+\sum_i w_i \hat e_i$, so the seven
+readable weights describe the deviation from a population prediction rather
+than the prediction itself. This section quantifies how much of the output that
+term accounts for, so that the claim about legibility can be read against a
+number.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Scale of the personal term relative to the population branch.
+Qwen3-VL 8B, anchored, $N=100$, over the $387$ units and their $19{,}350$
+evaluation images.}
+\label{tab:personal_share}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lc}
+\toprule
+Quantity & Value \\
+\midrule
+Mean s.d.\ of $\hat y_{\mathrm{pop}}$ across a unit's images & $.579$ \\
+Mean s.d.\ of the personal term across the same images       & $.311$ \\
+Median share of $\operatorname{var}(\hat y)$ from the personal term & $.193$ \\
+Mean $\lVert\mathbf w_{\mathrm{pop}}\rVert$                  & $.387$ \\
+Mean $\lVert\boldsymbol\delta_u\rVert$                       & $.385$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item The mean variance share ($.530$) is inflated by units whose population
+prediction is nearly constant across their evaluation images; the median is
+reported as the representative value.
+\item The personal correction has the same coefficient norm as the shared
+emotion-space direction it corrects, and about half its output scale. The
+readable part of the model is therefore a substantial component of the
+prediction, not a residual adjustment, but it is not the whole prediction and
+the paper does not claim that it is.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\paragraph{The formula as a control surface.}
+An editable model should respond to an edit of its weights in a predictable
+way. Scaling a user's personal coefficient vector by a factor $\gamma$ and
+leaving everything else fixed traces a smooth, single-peaked curve:
+
+\begin{center}\small
+\begin{tabular}{lcccccccc}
+\toprule
+$\gamma$ & $0$ & $.25$ & $.50$ & $.75$ & $1.00$ & $1.25$ & $1.50$ & $2.00$ \\
+\midrule
+SROCC & .439 & .452 & .460 & .463 & .459 & .451 & .438 & .408 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At $\gamma=0$ the model degrades exactly onto the population baseline, as the
+anchor is designed to make it; performance rises, peaks and falls monotonically
+on either side. An edit therefore moves the prediction in a stable and
+interpretable direction rather than producing an erratic response, which is the
+property an editable model needs.
+
+We note two things about this curve. The peak sits at $\gamma\approx.75$ and is
+$.004$ SROCC above the fitted value, so the penalty frozen on the validation
+group leaves the personal heads mildly under-regularized on average; we report
+the value the protocol selects rather than the post-hoc optimum, which could
+not be chosen without consulting the evaluation set. And the curve measures
+controllability, not correction: it shows that a weight edit has a well-behaved
+effect, not that a person editing their own formula would improve it. We did
+not test the latter, and \cref{sec:supp_scope} states why.
+
+
+% ===========================================================================
+\section{Null Models for the Faithfulness Diagnostics}
+\label{sec:supp_nulls}
+% ===========================================================================
+
+Each faithfulness check compares a model against a degraded version of itself.
+Two of them admit a null that the main paper does not report, and the null
+changes what the result can be read as saying.
+
+\subsection{Image swap against a matched-variance control}
+
+Replacing an image's predicted emotions with another image's destroys the
+image--emotion pairing but also injects a vector that is uncorrelated with the
+target. Any such injection lowers a correlation, so the drop below the
+no-image condition cannot by itself distinguish misleading content from added
+variance. We therefore add two null conditions: emotion vectors drawn from a
+Gaussian matched to the unit's own predicted-emotion covariance, and vectors
+formed by shuffling each emotion column independently.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Image-swap diagnostic with variance-matched controls. Qwen3-VL 8B,
+anchored, $N=100$; the fitted formula and each target image's population
+prediction are held fixed.}
+\label{tab:swap_controls}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lcc}
+\toprule
+Emotion input & SROCC & Bootstrap SEM \\
+\midrule
+Correct image                       & \textbf{.459} & .011 \\
+No image (support-set mean)         & .439 & .011 \\
+Swapped image (49 cyclic shifts)    & .384 & .010 \\
+Gaussian matched to $\operatorname{cov}(\hat{\mathbf e})$ & .385 & .010 \\
+Independently shuffled columns      & .369 & .010 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Gaussian and shuffled conditions average $20$ draws per unit. SEMs are
+participant-cluster bootstrap standard errors over $129$ participants. This
+table is descriptive; the inferential contrast between the correct image and
+the swapped image is reported in the main paper's faithfulness family.
+\item The no-image predictor is the population prediction plus a constant, so
+its SROCC equals the Population row of Table~1 exactly.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+Swapped emotions and covariance-matched noise are indistinguishable
+($.384$ and $.385$). The additional drop below the no-image condition is
+therefore what any emotion-shaped vector of the same scale produces, and it
+does not license the reading that mismatched emotions actively mislead the
+head. What the diagnostic does establish is unaffected: correctly paired
+emotions are worth $.075$ SROCC over mismatched ones, so the personal term
+reads the image in front of it.
+
+\subsection{Weight alignment against a peer-formula null}
+
+The alignment reported in the main paper correlates each unit's total weight
+vector with the empirical association between predicted emotions and that
+user's ratings on the held-out images. Because
+$\mathbf w_{\mathrm{tot}}=\mathbf w_{\mathrm{pop}}+\boldsymbol\delta_u$
+contains a direction shared by every user in a fold and domain, part of that
+agreement is available to any user's formula. We measure how much by applying
+each unit's weights to a peer's associations, using a cyclic shift of user
+order within each fold and domain.
+
+We also vary the source of the empirical association. The main paper computes
+it from the predicted emotions the head consumes; we additionally compute it
+from the user's own reported emotion ratings on the same images, which the
+model never observes and which are therefore an independent check rather than a
+restatement of the head's inputs.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Weight alignment against a peer-formula null. Mean Spearman
+correlation between a weight vector and a set of empirical emotion--rating
+associations, over $387$ units.}
+\label{tab:alignment_null}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccc}
+\toprule
+Weights & Associations from & Own & Peer & Excess (95\% CI) \\
+\midrule
+$\mathbf w_{\mathrm{tot}}$ & predicted emotions & .525 & .453 & $+.072$ $[+.041,+.102]^{\dagger}$ \\
+$\boldsymbol\delta_u$      & predicted emotions & .122 & .025 & $+.097$ $[+.060,+.135]^{\dagger}$ \\
+$\mathbf w_{\mathrm{tot}}$ & reported emotions  & .478 & .458 & $+.020$ $[-.012,+.052]$ \\
+$\boldsymbol\delta_u$      & reported emotions  & .042 & .000 & $+.041$ $[+.005,+.077]^{\dagger}$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Peer columns apply the weights of the unit that precedes each user in a
+fixed within-fold, within-domain ordering, so every unit receives exactly one
+peer and no unit is compared with itself. Excess is a participant-cluster
+bootstrap mean of the paired own--peer difference; $\dagger$ marks an interval
+excluding zero under the one-sided alternative used for alignment.
+\item The first row is the quantity reported in the main paper. Its peer null
+of $.453$ shows that most of the agreement is a population-level property of
+the shared emotion-space direction.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+The alignment is positive and part of it belongs to the individual, but the
+part that does is much smaller than the headline correlation suggests. Against
+the predicted emotions the head consumes, a peer's formula already reaches
+$.453$ of the $.525$; the personal excess is $+.072$. Isolating the personal
+coefficients removes the shared direction and leaves an excess of $+.097$ over
+a near-zero null. Against the user's own reported emotions, only the personal
+coefficients show an excess ($+.041$); the total vector does not
+($+.020$, interval spanning zero). We therefore read the alignment result as
+evidence that the fitted weights recover associations visible in the person's
+own ratings, with a measurable but modest component that is specific to that
+person rather than to the population.
+
+\subsection{Concept ablation under both weight conventions}
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Concept ablation under the two weight conventions. Qwen3-VL 8B,
+anchored, $N=100$.}
+\label{tab:ablation_both}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lcc}
+\toprule
+Concept held at its support mean & By $\mathbf w_{\mathrm{tot}}$ & By $\boldsymbol\delta_u$ \\
+\midrule
+None (full model)   & .459 & .459 \\
+Lowest weighted     & .459 & --- \\
+Average of the seven& .435 & --- \\
+Highest weighted    & .361 & $\approx$ .442 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Regenerate this table from the released per-unit outputs before
+submission; the $\boldsymbol\delta_u$ column is the computational-path
+intervention and is smaller because the population branch retains the
+concept's shared contribution.
+\item Ranking by $\lvert w\rvert$ is not confounded by differences in feature
+spread: after training-group standardization the seven concepts have
+near-identical evaluation-set standard deviations (mean $.973$, range
+$.970$--$.976$), and ranking by $\lvert w\rvert$ and by
+$\lvert w\rvert\times\mathrm{sd}(\hat e)$ selects the same top concept in
+$90.4\%$ of units.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+The ablation is a check that the prediction runs on the stated weights, not a
+demonstration of a nontrivial property: for a linear head with standardized
+inputs, removing a larger coefficient must cost more. Its informative content
+is that the lowest-weighted concept can be removed without a detectable change
+in SROCC, that the drop tracks weight magnitude rather than feature spread, and
+that the ranking is stable under the alternative scaling.
+
+
+% ===========================================================================
+\section{Scope of the Claims}
+\label{sec:supp_scope}
+% ===========================================================================
+
+We list the boundaries of the present evidence in one place, so that a reader
+can see what the study does and does not establish without reconstructing it
+from the individual analyses.
+
+\paragraph{One support set per user.}
+Each user's support set is a single deterministic draw (seed
+$42+\text{user\_id}$) from the images outside their fixed evaluation set. Which
+images a person happened to rate is a source of variance that no reported
+standard error contains: every interval in this paper is conditional on that
+draw. Seed averaging does not address this, because the seeds vary only the
+stochastic mediators and the MLP heads.
+
+\paragraph{Prediction and explanation are not the same object.}
+The seven weights are the whole of what is personal, and they account for a
+substantial share of the output (\cref{sec:supp_personal_share}), but the
+prediction also contains a population branch fitted on raw features. A reader
+of the formula reads how this person departs from the consensus, not how the
+consensus was reached.
+
+\paragraph{Inspection is tested; correction is not.}
+The faithfulness diagnostics establish that the formula describes the model
+that produced the prediction. No person read a formula in this study, and no
+edit made by a person was evaluated. \Cref{sec:supp_personal_share} shows the
+model responds to weight edits in a well-behaved way, which is a precondition
+for correction rather than a demonstration of it. A study in which participants
+inspect and revise their own formulas, and the revised formulas are scored on
+held-out images, is the appropriate next step and is not attempted here.
+
+\paragraph{Prior-method comparisons are context, not evidence.}
+The ICI and MIR rows use different features, a different personalization
+mechanism and a different protocol. Our content-free random projection also
+exceeds their reported values, which is why we do not test against them and do
+not read their ordering as evidence about the mediator.
+
+\paragraph{One dataset, one population.}
+XPASS-Vis is currently the only resource pairing multi-dimensional aesthetic
+emotion annotations with repeated personal ratings. Its three domains are rated
+by the same participants, so they are not three independent populations, and
+whether the emotion basis and the weight patterns transfer across cultures
+remains untested.

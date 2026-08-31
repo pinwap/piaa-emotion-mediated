@@ -29,8 +29,6 @@ from src.utils.metrics import participant_cluster_bootstrap
 OUT_DIR = ROOT / "output" / "statistics"
 HOLM = OUT_DIR / "holm_corrected.csv"
 FAITHFULNESS_DIR = ROOT / "output" / "faithfulness"
-DISTRIBUTION_RAW = (ROOT / "output" / "efficiency" / "clip" /
-                    "raw_C_memo-emo_sd-emo_hist.csv")
 DOMAIN_ORDER = [("art", "Artwork"), ("fashion", "Fashion"),
                 ("landscape", "Landscape"), (None, "Average")]
 
@@ -61,7 +59,10 @@ def _plain_cell(mean: float, *, marker: str = "", bold: bool = False) -> str:
 
 
 def _p_cell(value: float) -> str:
-    return r"$<.0001$" if value < 0.0001 else f"${_short(value, 4)}$"
+    # Average p-values come from 10,000 bootstrap samples.  Reporting <.001
+    # is intentionally conservative and avoids implying more Monte-Carlo
+    # resolution than the procedure provides.
+    return r"$<.001$" if value < 0.001 else f"${_short(value, 4)}$"
 
 
 def _mean_sem(values: pd.Series, participant_ids: pd.Series | None = None) -> tuple[float, float]:
@@ -241,7 +242,88 @@ def backbone(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
     _write("tableS2_backbone_corrected.tex", lines)
 
 
+def mediator_backbone(raw: pd.DataFrame) -> None:
+    """Descriptive same-width Hybrid/PCA scope check across backbones."""
+    selected = raw[
+        raw.backbone.isin(BACKBONES)
+        & raw.variant.isin(["C", "plain"])
+        & (raw.n_train == 100)
+        & (raw["head"] == "ridge")
+        & raw.mediator.isin(["emotion", "pca"])
+    ]
+    averaged = _validate_and_average(
+        selected, ["backbone", "variant", "mediator", "head"],
+        "Mediator-backbone LaTeX",
+    )
+    names = {
+        "clip": "CLIP frozen",
+        "clip_ft": "CLIP-ft (score)",
+        "clip_ft_emo": "CLIP-ft (emotion)",
+        "qwen4b": "Qwen3-VL 4B",
+        "qwen8b": "Qwen3-VL 8B",
+    }
+    lines = [r"\begin{tabular}{llccc}", r"\toprule",
+             r"Setting & Backbone & Hybrid & PCA & Hybrid--PCA (95\% CI) \\",
+             r"\midrule"]
+
+    def signed(value: float) -> str:
+        short = _short(value)
+        return short if short.startswith("-") else "+" + short
+
+    for variant, label in (("C", "Anchored"), ("plain", "Unanchored")):
+        for index, backbone_name in enumerate(BACKBONES):
+            criteria = {"backbone": backbone_name, "variant": variant,
+                        "head": "ridge"}
+            hybrid = averaged[
+                (averaged.backbone == backbone_name)
+                & (averaged.variant == variant)
+                & (averaged.mediator == "emotion")
+                & (averaged["head"] == "ridge")
+            ].set_index(UNIT)
+            pca = averaged[
+                (averaged.backbone == backbone_name)
+                & (averaged.variant == variant)
+                & (averaged.mediator == "pca")
+                & (averaged["head"] == "ridge")
+            ].set_index(UNIT)
+            paired = hybrid[["srocc"]].join(
+                pca[["srocc"]], how="inner", lsuffix="_hybrid", rsuffix="_pca"
+            )
+            if len(paired) != 387:
+                raise ValueError(
+                    f"{variant}/{backbone_name}: expected 387 paired units, "
+                    f"got {len(paired)}"
+                )
+            difference = paired.srocc_hybrid - paired.srocc_pca
+            bootstrap = participant_cluster_bootstrap(
+                difference, paired.index.get_level_values("user_id")
+            )
+            hybrid_mean, _ = _stats(
+                averaged, criteria | {"mediator": "emotion"}, None, "srocc"
+            )
+            pca_mean, _ = _stats(
+                averaged, criteria | {"mediator": "pca"}, None, "srocc"
+            )
+            interval = (
+                f"${signed(bootstrap['mean'])}$ "
+                f"$[{signed(bootstrap['ci95_lower'])},"
+                f"{signed(bootstrap['ci95_upper'])}]$"
+            )
+            prefix = rf"\multirow{{5}}{{*}}{{{label}}}" if index == 0 else ""
+            lines.append(
+                f"{prefix} & {names[backbone_name]:<17} & "
+                f"{_plain_cell(hybrid_mean)} & {_plain_cell(pca_mean)} & "
+                f"{interval} " + r"\\"
+            )
+        if variant == "C":
+            lines.append(r"\addlinespace")
+    lines += [r"\bottomrule", r"\end{tabular}", "",
+              r"% Descriptive participant-cluster intervals; no Holm markers."]
+    _write("tableS_mediator_backbone_descriptive.tex", lines)
+
+
 def efficiency(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
+    """Render the descriptive budget table; tests remain in the audit CSV."""
     models = [("population", "Population"), ("identity", "Direct"), ("emotion", "Hybrid")]
     budgets = [10, 25, 50, 100]
     selected = raw[
@@ -267,11 +349,7 @@ def efficiency(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
             for domain, _ in DOMAIN_ORDER:
                 for metric in METRICS:
                     mean, sem = _stats(averaged, {"n_train": n_train, "mediator": mediator}, domain, metric)
-                    marker = ""
-                    if mediator != "population":
-                        contrast = f"{label} vs Population [N={n_train}]"
-                        marker = "dagger" if _sig(holm, "table_efficiency", domain, metric, contrast) else ""
-                    cells.append(_cell(mean, sem, marker=marker,
+                    cells.append(_cell(mean, sem,
                                        bold=np.isclose(mean, best[(domain, metric)])))
             prefix = rf"\multirow{{3}}{{*}}{{{n_train}}} & " if mi == 0 else "& "
             lines.append(prefix + label + " & " + " & ".join(cells) + r" \\")
@@ -279,7 +357,7 @@ def efficiency(raw: pd.DataFrame, holm: pd.DataFrame) -> None:
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}", "",
               r"% Domain SEM uses 129 participants; Average SEM uses a 129-participant cluster bootstrap with three domains per participant.",
-              r"% \dagger: Holm-adjusted p < .05 versus Population at the same N (paired Wilcoxon per domain; participant-cluster bootstrap for Average)."]
+              r"% Descriptive table: no significance markers."]
     _write("table_efficiency_corrected.tex", lines)
 
 
@@ -336,6 +414,28 @@ def mlp_baseline(raw: pd.DataFrame) -> None:
     _write("tableS_mlp_baseline_corrected.tex", lines)
 
 
+def _performance_header_two(first: str, second: str) -> list[str]:
+    """Four-domain performance header with two leading descriptor columns."""
+    return [
+        r"\begin{tabular}{ll cc cc cc cc}",
+        r"\toprule",
+        (rf"\multirow{{2}}{{*}}{{{first}}} & \multirow{{2}}{{*}}{{{second}}} & "
+         r"\multicolumn{2}{c}{Artwork} & \multicolumn{2}{c}{Fashion} & "
+         r"\multicolumn{2}{c}{Landscape} & \multicolumn{2}{c}{Average} \\"),
+        (r"\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}"
+         r"\cmidrule(lr){9-10}"),
+        r"& & SROCC & PLCC & SROCC & PLCC & SROCC & PLCC & SROCC & PLCC \\",
+        r"\midrule",
+    ]
+
+
+def _marker_sequence(markers: list[str]) -> str:
+    """Encode multiple LaTeX superscript commands for ``_cell``."""
+    if not markers:
+        return ""
+    return markers[0] + "".join(",\\" + marker for marker in markers[1:])
+
+
 def mlp_architecture(raw: pd.DataFrame) -> None:
     """Descriptive sequential/joint MLP architecture table."""
     ridge = raw[
@@ -380,25 +480,20 @@ def mlp_architecture(raw: pd.DataFrame) -> None:
 
 
 def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
-    raw = pd.read_csv(DISTRIBUTION_RAW, low_memory=False)
+    raw = raw_all[
+        (raw_all.backbone == "clip") & (raw_all.variant == "C")
+    ].copy()
     mediators = [("population", "Population"), ("identity", "Direct"),
                  ("emotion", "Hybrid 7-d"), ("emotion_sd", "Hybrid 14-d"),
                  ("emotion_hist", "Hybrid 35-d")]
     budgets = [10, 25, 50, 100]
     selected = raw[
         raw.n_train.isin(budgets) & (raw["head"] == "ridge")
-        & raw.mediator.isin(["population", "emotion", "emotion_sd", "emotion_hist"])
+        & raw.mediator.isin(["population", "identity", "emotion",
+                             "emotion_sd", "emotion_hist"])
     ]
     averaged = _validate_and_average(
         selected, ["n_train", "mediator", "head"], "Distribution LaTeX"
-    )
-    direct = raw_all[
-        (raw_all.backbone == "clip") & (raw_all.variant == "C")
-        & raw_all.n_train.isin(budgets) & (raw_all["head"] == "ridge")
-        & (raw_all.mediator == "identity")
-    ]
-    direct = _validate_and_average(
-        direct, ["n_train", "mediator", "head"], "Distribution Direct LaTeX"
     )
     lines = [r"\begin{tabular}{@{}c cc ccc@{}}", r"\toprule",
              r"$N$ & Population & Direct & Hybrid 7-d & Hybrid 14-d & Hybrid 35-d \\",
@@ -407,23 +502,18 @@ def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
     for n_train in budgets:
         cells = []
         for mediator, label in mediators:
-            source = direct if mediator == "identity" else averaged
+            source = averaged
             mean, sem = _stats(
                 source,
                 {"n_train": n_train, "mediator": mediator},
                 None,
                 "srocc",
             )
-            marker = ""
-            if mediator.startswith("emotion"):
-                contrast = f"{label} vs Population [N={n_train}]"
-                marker = "dagger" if _sig(holm, "tableS_distribution", None, "srocc", contrast) else ""
-            cells.append(_cell(mean, sem, marker=marker))
+            cells.append(_cell(mean, sem))
         lines.append(str(n_train) + " & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", "",
               r"% Values are mean \pm participant-clustered bootstrap SEM (129 participants, three domains each).",
-              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Population.",
-              r"% One pooled-Average SROCC family contains all 12 Hybrid comparisons."]
+              r"% Descriptive table: no significance markers."]
     _write("tableS_distribution_corrected.tex", lines)
 
     tabular_end = lines.index(r"\end{tabular}") + 1
@@ -444,15 +534,11 @@ def distribution(raw_all: pd.DataFrame, holm: pd.DataFrame) -> None:
         r"\begin{tablenotes}[flushleft]\footnotesize",
         (r"\item Values are mean $\pm$ participant-cluster bootstrap SEM over "
          r"129 participants, with their three domains resampled as a block."),
-        (r"\item $^\dagger$ Holm-adjusted two-sided participant-cluster bootstrap $p<.05$ "
-         r"versus Population. One family contains the 12 Hybrid comparisons: "
-         r"three mediator widths at four rating budgets."),
+        (r"\item This table is descriptive and carries no significance markers."),
         (r"\item At $N=100$, the 14-d and 7-d variants have nearly identical "
          r"mean SROCC (.434 and .435). Among the Hybrid variants, the 35-d "
-         r"histogram has the highest mean from $N=25$ onward and significantly "
-         r"outperforms Population at each of these budgets; \cref{tab:rater_sd} "
-         r"examines why adding across-rater standard deviation provides no "
-         r"apparent gain."),
+         r"histogram has the highest mean from $N=25$ onward. Adding across-rater "
+         r"standard deviation provides no apparent gain."),
         (r"\item This experiment was run with frozen CLIP only and is reported "
          r"as a negative control for the choice of Stage-1 target, not as a "
          r"primary result."),
@@ -469,86 +555,112 @@ def faithfulness(holm: pd.DataFrame) -> None:
         ("Anchored", pd.read_csv(base / "formula_swap.csv")),
         ("Unanchored", pd.read_csv(base / "formula_swap_unanchored.csv")),
     ]
-    lines = [r"\begin{tabular}{ll cc cc}", r"\toprule",
-             r"Setting & Formula & \multicolumn{2}{c}{Average performance} & \multicolumn{2}{c}{Holm-adjusted $p$} \\",
-             r"\cmidrule(lr){3-4}\cmidrule(lr){5-6}",
-             r"& & SROCC & PLCC & SROCC & PLCC \\", r"\midrule"]
+    lines = _performance_header_two("Setting", "Formula")
     for ci, (setting, frame) in enumerate(conditions):
-        mapping = [("own", "Own", "own"), ("pop", "Population mean", "population_mean"),
-                   ("other", "Other user", "other_user")]
-        for ri, (key, label, _) in enumerate(mapping):
-            means = [_mean_sem(frame[f"{key}_{m}"], frame["user_id"])
-                     for m in METRICS]
-            perf = [_cell(mean, sem, bold=(key == "own")) for mean, sem in means]
-            if key == "own":
-                pvals = ["---", "---"]
-            else:
-                contrast = f"Own vs {label} [{setting}]"
-                rows = holm[(holm.table == "figure_faithfulness")
-                            & (holm.domain == "average")
-                            & (holm.contrast == contrast)]
-                pvals = [_p_cell(float(rows[rows.metric == m].iloc[0].p_holm))
-                         for m in METRICS]
+        mapping = [("own", "Own"), ("pop", "Population mean"),
+                   ("other", "Other user")]
+        for ri, (key, label) in enumerate(mapping):
+            perf = []
+            for domain, _domain_label in DOMAIN_ORDER:
+                d = frame if domain is None else frame[frame.domain == domain]
+                for metric in METRICS:
+                    mean, sem = _mean_sem(
+                        d[f"{key}_{metric}"],
+                        d["user_id"] if domain is None else None,
+                    )
+                    markers = []
+                    if key != "own" and _sig(
+                        holm, "figure_faithfulness", domain, metric,
+                        f"Own vs {label} [{setting}]",
+                    ):
+                        markers.append("dagger")
+                    if key == "other" and _sig(
+                        holm, "figure_faithfulness", domain, metric,
+                        f"Population mean vs Other user [{setting}]",
+                    ):
+                        markers.append("ddagger")
+                    perf.append(_cell(
+                        mean, sem, marker=_marker_sequence(markers),
+                        bold=(key == "own")
+                    ))
             prefix = rf"\multirow{{3}}{{*}}{{{setting}}} & " if ri == 0 else "& "
-            lines.append(prefix + label + " & " + " & ".join(perf + pvals) + r" \\")
+            lines.append(prefix + label + " & " + " & ".join(perf) + r" \\")
         if ci == 0:
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% Adjusted p-values compare Own with the displayed replacement formula."]
+              r"% \dagger: Holm-adjusted p < .05 versus Own.",
+              r"% \ddagger: Holm-adjusted p < .05 for Population mean versus Other user."]
     _write("table_faithfulness_formula_swap_corrected.tex", lines)
 
     ablation = pd.read_csv(base / "ablation.csv")
     ablations = [("full", "Full", None), ("top1", "Top-weight held", "Top-weight emotion held"),
                  ("avg1", "Average-weight held", "Average emotion held"),
                  ("bottom1", "Bottom-weight held", "Bottom-weight emotion held")]
-    lines = [r"\begin{tabular}{l cc}", r"\toprule",
-             r"Condition & SROCC & PLCC \\", r"\midrule"]
+    lines = _performance_header("Condition")
     for key, label, ref_label in ablations:
         cells = []
-        for metric in METRICS:
-            mean, sem = _mean_sem(
-                ablation[f"{key}_{metric}"], ablation["user_id"]
-            )
-            marker = ""
-            if ref_label:
-                marker = "dagger" if _sig(
-                    holm, "figure_faithfulness", None, metric,
-                    f"Full model vs {ref_label}"
-                ) else ""
-            cells.append(_cell(mean, sem, marker=marker, bold=(key == "full")))
+        for domain, _domain_label in DOMAIN_ORDER:
+            d = ablation if domain is None else ablation[ablation.domain == domain]
+            for metric in METRICS:
+                mean, sem = _mean_sem(
+                    d[f"{key}_{metric}"],
+                    d["user_id"] if domain is None else None,
+                )
+                marker = ""
+                if ref_label and _sig(
+                    holm, "figure_faithfulness", domain, metric,
+                    f"Full model vs {ref_label}",
+                ):
+                    marker = "dagger"
+                cells.append(_cell(
+                    mean, sem, marker=marker, bold=(key == "full")
+                ))
         lines.append(label + " & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Full."]
+              r"% \dagger: Holm-adjusted p < .05 versus Full."]
     _write("table_faithfulness_ablation_corrected.tex", lines)
 
     image_tables = [("Anchored", pd.read_csv(base / "image_swap.csv"),
-                     [("correct", "Correct image", None), ("swapped", "Swapped image", "Swapped image"),
-                      ("no_image", "No-image emotion", "No-image emotion")]),
+                     [("correct", "Correct image", None),
+                      ("no_image", "No-image emotion", "No-image emotion"),
+                      ("swapped", "Swapped image", "Swapped image")]),
                     ("Unanchored", pd.read_csv(base / "image_swap_unanchored.csv"),
                      [("correct", "Correct image", None), ("swapped", "Swapped image", "Swapped image")])]
-    lines = [r"\begin{tabular}{ll cc}", r"\toprule",
-             r"Setting & Emotion input & SROCC & PLCC \\", r"\midrule"]
+    lines = _performance_header_two("Setting", "Emotion input")
     for ti, (setting, frame, rowspec) in enumerate(image_tables):
         for ri, (key, label, control) in enumerate(rowspec):
             cells = []
-            for metric in METRICS:
-                mean, sem = _mean_sem(
-                    frame[f"{key}_{metric}"], frame["user_id"]
-                )
-                marker = ""
-                if control:
-                    suffix = " [Unanchored]" if setting == "Unanchored" else ""
-                    marker = "dagger" if _sig(
-                        holm, "figure_faithfulness", None, metric,
-                        f"Correct image vs {control}{suffix}"
-                    ) else ""
-                cells.append(_cell(mean, sem, marker=marker, bold=(key == "correct")))
+            for domain, _domain_label in DOMAIN_ORDER:
+                d = frame if domain is None else frame[frame.domain == domain]
+                for metric in METRICS:
+                    mean, sem = _mean_sem(
+                        d[f"{key}_{metric}"],
+                        d["user_id"] if domain is None else None,
+                    )
+                    markers = []
+                    if control:
+                        suffix = " [Unanchored]" if setting == "Unanchored" else ""
+                        if _sig(
+                            holm, "figure_faithfulness", domain, metric,
+                            f"Correct image vs {control}{suffix}",
+                        ):
+                            markers.append("dagger")
+                    if setting == "Anchored" and key == "swapped" and _sig(
+                        holm, "figure_faithfulness", domain, metric,
+                        "No-image emotion vs Swapped image",
+                    ):
+                        markers.append("ddagger")
+                    cells.append(_cell(
+                        mean, sem, marker=_marker_sequence(markers),
+                        bold=(key == "correct")
+                    ))
             prefix = rf"\multirow{{{len(rowspec)}}}{{*}}{{{setting}}} & " if ri == 0 else "& "
             lines.append(prefix + label + " & " + " & ".join(cells) + r" \\")
         if ti == 0:
             lines.append(r"\addlinespace")
     lines += [r"\bottomrule", r"\end{tabular}", "",
-              r"% \dagger: Holm-adjusted participant-cluster bootstrap p < .05 versus Correct image in the same setting."]
+              r"% \dagger: Holm-adjusted p < .05 versus Correct image in the same setting.",
+              r"% \ddagger: Holm-adjusted p < .05 for No-image emotion versus Swapped image."]
     _write("table_faithfulness_image_swap_corrected.tex", lines)
 
 
@@ -574,21 +686,46 @@ def weight_alignment(holm: pd.DataFrame) -> None:
     _write("table_weight_alignment_corrected.tex", lines)
 
 
+def weight_alignment_peer_null() -> None:
+    """Render the descriptive own-versus-peer alignment scope check."""
+    data = pd.read_csv(FAITHFULNESS_DIR / "weight_alignment_peer_null.csv")
+    if len(data) != 387 or data.duplicated(UNIT).any():
+        raise ValueError("peer alignment must contain 387 unique units")
+    bootstrap = participant_cluster_bootstrap(
+        data["excess_spearman"], data["user_id"], alternative="greater"
+    )
+
+    def signed(value: float) -> str:
+        short = _short(value)
+        return short if short.startswith("-") else "+" + short
+
+    interval = (
+        f"${signed(bootstrap['mean'])}$ "
+        f"$[{signed(bootstrap['ci95_lower'])},"
+        f"{signed(bootstrap['ci95_upper'])}]$"
+    )
+    lines = [r"\begin{tabular}{lccc}", r"\toprule",
+             r"Weights & Own association & Peer association & Own--peer (95\% CI) \\",
+             r"\midrule",
+             (r"$\mathbf w_{\mathrm{tot}}$ & "
+              f"{_plain_cell(data.own_spearman.mean())} & "
+              f"{_plain_cell(data.peer_spearman.mean())} & {interval} " + r"\\"),
+             r"\bottomrule", r"\end{tabular}"]
+    _write("table_weight_alignment_peer_null.tex", lines)
+
+
 def main(argv=None) -> int:
-    global OUT_DIR, FAITHFULNESS_DIR, DISTRIBUTION_RAW
+    global OUT_DIR, FAITHFULNESS_DIR
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw", type=Path, default=RAW)
     parser.add_argument("--holm", type=Path, default=HOLM)
     parser.add_argument("--output-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--faithfulness-dir", type=Path,
                         default=FAITHFULNESS_DIR)
-    parser.add_argument("--distribution-raw", type=Path,
-                        default=DISTRIBUTION_RAW)
     args = parser.parse_args(argv)
 
     OUT_DIR = args.output_dir
     FAITHFULNESS_DIR = args.faithfulness_dir
-    DISTRIBUTION_RAW = args.distribution_raw
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     raw = pd.read_csv(args.raw, low_memory=False)
@@ -596,12 +733,14 @@ def main(argv=None) -> int:
     table1(raw, holm)
     anchor(raw, holm)
     backbone(raw, holm)
+    mediator_backbone(raw)
     efficiency(raw, holm)
     mlp_baseline(raw)
     mlp_architecture(raw)
     distribution(raw, holm)
     faithfulness(holm)
     weight_alignment(holm)
+    weight_alignment_peer_null()
     print("wrote manuscript tables to", OUT_DIR)
     return 0
 

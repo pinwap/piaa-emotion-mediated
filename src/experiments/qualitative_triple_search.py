@@ -4,11 +4,8 @@ the Sad-weight (sad_wtot) distribution, plus a third user (same image,
 fold, domain) whose Stage-1 prediction diverged sharply from their own
 rating on that image.
 
-This script does NOT pick a single "best" triple -- it prints a ranked
-table and a human picks the final row. That is deliberate: the ranking
-rule is simple and fully disclosed (see PAPER_CAPTION below), and the
-final choice among close alternatives is a human editorial call, not
-something to bury inside an argmax.
+The script returns a deterministic ranked table; the reported example is its
+top-ranked row.
 
 Ranking rule:
   1. Keep sad_wtot-opposite-sign pairs (one positive, one negative) that
@@ -33,15 +30,20 @@ Ranking rule:
      contrasting AND both well-predicted, paired with the worst-available
      failure case on the same image.
 
-Run: python3 src/experiments/qualitative_triple_search.py
+Run: uv run python -m src.experiments.qualitative_triple_search
 """
+from pathlib import Path
+
 import pandas as pd
 
 CORE7 = ["impressed", "intellectual", "motivated", "amused",
          "nostalgic", "sad", "distasteful"]
 
-PER_IMAGE = "output/formulas/per_image.csv"
-USER_FORMULA = "output/formulas/user_formula.csv"
+ROOT = Path(__file__).resolve().parents[2]
+PER_IMAGE = ROOT / "output" / "formulas" / "per_image.csv"
+USER_FORMULA = ROOT / "output" / "formulas" / "user_formula.csv"
+FINAL_IMAGES = ROOT / "output" / "formula_images_final.csv"
+FINAL_UNITS = ROOT / "output" / "formula_units_final.csv"
 
 SAD_GAP_MIN = 0.30   # "clearly apart" cutoff on sad_wtot
 TOP_N = 10
@@ -51,8 +53,22 @@ RATED_COLS = [f"{e}_rated" for e in CORE7]
 
 
 def load():
-    pi = pd.read_csv(PER_IMAGE)
-    uf = pd.read_csv(USER_FORMULA)
+    """Load compact formula databases, with a run-directory fallback."""
+    if FINAL_IMAGES.exists() and FINAL_UNITS.exists():
+        pi = pd.read_csv(FINAL_IMAGES, low_memory=False)
+        uf = pd.read_csv(FINAL_UNITS, low_memory=False)
+        if "setting" not in pi or "setting" not in uf:
+            raise ValueError("consolidated formula databases require a setting column")
+        pi = pi[pi.setting == "anchored"].copy()
+        uf = uf[uf.setting == "anchored"].copy()
+    else:
+        pi = pd.read_csv(PER_IMAGE)
+        uf = pd.read_csv(USER_FORMULA)
+    if len(pi) != 19_350 or len(uf) != 387:
+        raise ValueError(
+            "qualitative search expects 387 anchored formula units and "
+            f"19,350 evaluation-image rows, got {len(uf)} and {len(pi)}"
+        )
     return pi, uf
 
 
@@ -147,17 +163,16 @@ def build_table(pi, uf, top_n=TOP_N):
             ]
     return df
 
-if __name__ == "__main__":
+def main() -> int:
     pi, uf = load()
     table = build_table(pi, uf)
     pd.set_option("display.width", 400)
     pd.set_option("display.max_columns", 100)
-    print(f"top {TOP_N} candidates (sad gap >= {SAD_GAP_MIN}; ranked by the "
-          f"sad+/sad- pair's own prediction error ascending -- pair_err = "
-          f"max(|hi.y-hi.ypred|, |lo.y-lo.ypred|) on the shown image -- then "
-          f"by the misread user's rating error |y-y_pred| descending):")
-    print(table.drop(columns=[c for c in table.columns if c.startswith(("hi_w_", "lo_w_", "mis_w_"))]).to_string(index=False))
-    print()
-    print("full table incl. all 7 w_total weights per user (hi_w_*, lo_w_*, mis_w_*):")
+    print(f"{len(table)} ranked qualitative candidates "
+          f"(minimum Sad-weight gap {SAD_GAP_MIN})")
     print(table.to_string(index=False))
-    print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

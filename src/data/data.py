@@ -1,7 +1,7 @@
-"""Load and prepare the XPASS-VIS data.
+"""Load XPASS-Vis ratings and apply the first-occurrence protocol.
 
-first-session filter: 4,509 pairs are test-retest pairs, so we use **the first rating only** and keep the second one aside for test-retest
-reliability.
+For the 4,509 repeated user--image pairs, model fitting uses the first
+occurrence. Both occurrences remain available through :meth:`retest_pairs`.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ DOMAIN_NORMALIZE = {"art": "art", "fashion": "fashion",
                     "landscape": "landscape", "scenery": "landscape"}
 DOMAINS = ["art", "fashion", "landscape"]
 
-EXPECTED = {"n_interactions": 87836, "n_users": 129, "n_stimuli": 6526} # from xpass-vis paper
+EXPECTED = {"n_interactions": 87836, "n_users": 129, "n_stimuli": 6526}
 
 def load_raw(data_dir: str | Path) -> pd.DataFrame:
     # Read ratings.csv
@@ -50,7 +50,10 @@ def load_raw(data_dir: str | Path) -> pd.DataFrame:
     if missing:
         raise KeyError(f"missing required columns: {missing} (have: {list(df.columns)})")
 
-    # emotions from 0-6 → 1-7
+    # Emotion items are stored as 0--4 in the released file; expose them on
+    # the questionnaire's 1--5 scale.  The overall aesthetic score remains on
+    # its 0--6 file coding internally; adding a constant would not change the
+    # correlation metrics used by the paper.
     for col in EMOTION_COLS:
         if col in df.columns:
             df[col] = df[col] + 1
@@ -110,9 +113,8 @@ class XpassDataset:
         and ordered exactly like per_stimulus() so the two can be concatenated
         column-wise.
 
-        Images rated by one user have no observed spread; those come back 0
-        rather than NaN, which keeps the matrix finite. Every image here has at
-        least 5 raters, so that path is defensive only.
+        Images with one rater have undefined spread and are filled with zero;
+        the released split has at least five raters per Stage-1 image.
         """
         return df.groupby(df["stimulus_id"].astype(str))[CORE7].std(ddof=0).fillna(0.0)
 

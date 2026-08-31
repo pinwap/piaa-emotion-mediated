@@ -18,6 +18,8 @@ Wilcoxon significance vs. Hybrid+Ridge) to output/table1/.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -93,6 +95,12 @@ def run_one_seed(cfg, pipeline, seed: int, variant: str | None = None,
     f = (out_dir /
          f"per_unit{_tag(variant)}{_htag(heads)}{_mtag(mediators)}_seed{seed}.csv")
     d.to_csv(f, index=False)
+    if pipeline.selection_records:
+        pd.DataFrame(pipeline.selection_records).to_csv(
+            out_dir /
+            f"selection{_tag(variant)}{_htag(heads)}{_mtag(mediators)}_seed{seed}.csv",
+            index=False,
+        )
     print(f"[table1] seed {seed} variant {variant} written ({len(d)} rows) -> {f.name}")
     # Respect --output-dir for both the run files and the append-only results
     # database.  This keeps verification/ablation runs isolated instead of
@@ -100,6 +108,55 @@ def run_one_seed(cfg, pipeline, seed: int, variant: str | None = None,
     record(d, "table1", db_path=Path(cfg.output_dir) / "raw_all.csv",
            backbone=cfg.backbone, variant=variant, n_train=cfg.n_train)
     return d
+
+
+def merge_partial_runs(cfg, heads, mediators,
+                       variant: str | None = None,
+                       seeds=None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Merge a controlled partial grid without touching the canonical run.
+
+    Partial grids are used for focused ablations such as Ridge/Lasso/Elastic
+    Net on the same backbone, split, support size and seeds.  The three seed
+    files are averaged within each user--domain unit before any summary is
+    computed, matching the paper's inference protocol.
+    """
+    out_dir = cfg.run_dir("table1")
+    heads = list(heads)
+    mediators = list(mediators)
+    variant = variant or cfg.stage2_variant
+    seeds = list(SEEDS if seeds is None else seeds)
+    stem = f"{_tag(variant)}{_htag(heads)}{_mtag(mediators)}"
+
+    files = [out_dir / f"per_unit{stem}_seed{s}.csv" for s in seeds]
+    missing = [str(p) for p in files if not p.exists()]
+    if missing:
+        raise FileNotFoundError("partial run is incomplete: " + ", ".join(missing))
+
+    raw = pd.concat([pd.read_csv(p) for p in files], ignore_index=True)
+    raw.to_csv(out_dir / f"per_unit{stem}_by_seed.csv", index=False)
+
+    key = ["mediator", "head", "fold", "domain", "user_id"]
+    value_cols = [c for c in ("ccc", "srocc", "plcc", "eff_dof")
+                  if c in raw.columns]
+    units = raw.groupby(key, as_index=False)[value_cols].mean()
+    units.to_csv(out_dir / f"per_unit{stem}.csv", index=False)
+
+    rows = []
+    for (med, head), d in units.groupby(["mediator", "head"], sort=False):
+        row = {"mediator": med, "head": head, "n_units": len(d)}
+        for dom in DOMAINS:
+            dd = d[d["domain"] == dom]
+            for metric in ("srocc", "plcc"):
+                row[f"{dom}_{metric}_mean"] = float(dd[metric].mean())
+                row[f"{dom}_{metric}_sem"] = sem(dd[metric])
+        for metric in ("srocc", "plcc"):
+            boot = participant_cluster_bootstrap(d[metric], d["user_id"])
+            row[f"avg_{metric}_mean"] = float(d[metric].mean())
+            row[f"avg_{metric}_sem"] = boot["sem"]
+        rows.append(row)
+    summary = pd.DataFrame(rows)
+    summary.to_csv(out_dir / f"summary{stem}.csv", index=False)
+    return units, summary
 
 
 def run(cfg, pipeline, dataset, seeds=None, variant: str | None = None) -> pd.DataFrame:
@@ -127,6 +184,9 @@ def run(cfg, pipeline, dataset, seeds=None, variant: str | None = None) -> pd.Da
     df.to_csv(out_dir / f"per_unit{tag}.csv", index=False)
 
     retest = test_retest(cfg, dataset)
+    test_retest_units(cfg, dataset).to_csv(
+        out_dir / f"test_retest_units{tag}.csv", index=False
+    )
     summary = summarize(df, retest)
     summary.to_csv(out_dir / f"summary{tag}.csv", index=False)
     print(summary.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
@@ -150,6 +210,28 @@ def test_retest(cfg, dataset) -> dict:
     y2 = pairs["overall_r2"].to_numpy(float)
     out["avg"] = dict(srocc=srocc(y1, y2), plcc=plcc(y1, y2), n=len(pairs))
     return out
+
+
+def test_retest_units(cfg, dataset) -> pd.DataFrame:
+    """Compute the within-user--domain reliability reference.
+
+    This uses the same 387 user--domain statistical units as the model rows.
+    The released unit table lets ``reproduce.py`` reaggregate the reported
+    mean and participant-cluster interval without redistributing raw ratings.
+    """
+    pairs = dataset.retest_pairs(cfg.data_dir)
+    rows = []
+    for (user_id, domain), d in pairs.groupby(["user_id", "domain"]):
+        y1 = d["overall_r1"].to_numpy(float)
+        y2 = d["overall_r2"].to_numpy(float)
+        rows.append({
+            "user_id": int(user_id),
+            "domain": domain,
+            "n": len(d),
+            "srocc": srocc(y1, y2),
+            "plcc": plcc(y1, y2),
+        })
+    return pd.DataFrame(rows).sort_values(["domain", "user_id"]).reset_index(drop=True)
 
 
 def _key(df, med, head):
@@ -186,7 +268,9 @@ def summarize(df, retest) -> pd.DataFrame:
             r[f"avg_{m}_sig"] = bool(np.isfinite(p) and p < 0.05)
         rows.append(r)
 
-    # test-retest is one correlation over all pairs pooled, not an average of per-unit correlations, so there is no sd/sem across units to report
+    # The main-table row retains the pooled-pair dataset reference.  The
+    # supplementary reports a separate within-user--domain reference, derived
+    # from the released test_retest_units.csv on the model's evaluation scale.
     rt = dict(mediator="test_retest", head="---", eff_dof=np.nan)
     for dom in DOMAINS:
         rt[f"{dom}_srocc_mean"] = retest[dom]["srocc"]

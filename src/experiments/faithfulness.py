@@ -1,35 +1,31 @@
-r"""Is the per-user formula a faithful explanation, or numbers that happen to fit?
+r"""Faithfulness diagnostics computed from stored per-user formulas.
 
-Four checks, all computed from the formulas `main.py formulas` wrote. Nothing
-here refits anything, which is the point: the earlier version built its own
-heads with `make_head("ridge", cfg).fit(M, y)`, so it interpreted an
-unanchored head with a per-user penalty while the tables reported an anchored
-head with a penalty frozen on the validation group. The two were never the
-same model and the output did not say so.
+All four checks are deterministic arithmetic over the stored formula and
+evaluation-image records; no model is refitted.
 
 Because the head is linear, every check is arithmetic over saved numbers:
 
   1. Ablation. Hold one emotion at its support-set mean and see how much
-     accuracy drops. Under the anchor the prediction is
-     \sum_j (w_tot_j * z_j) + bias_tot, so holding emotion j at zbar_j gives
+     accuracy drops. The reported diagnostic assigns the emotion-space total
+     weight w_tot = w_pop + delta to that concept, so holding emotion j at
+     zbar_j gives
 
          y_ablate = y_pred - w_tot_j * (z_j - zbar_j)
 
-     exactly, with no refit. Dropping the top-weighted emotion (max |w_tot|) should hurt
-     more than dropping the bottom-weighted one (min |w_tot|), 
-     proving that the total emotion weights faithfully explain the score.
+     with no refit. This is a total emotion-space attribution diagnostic, not
+     an algebraic decomposition of Anchor C's raw-feature population branch:
+     the executable predictor is y_pop(raw image features) + z . delta + b.
+     Dropping the top-weighted emotion (max |w_tot|) should hurt more than
+     dropping the bottom-weighted one (min |w_tot|).
 
   2. Formula swap. Score a user with their own formula, with the mean of all
      eligible peer formulas, and with five fixed-seed sampled peer formulas.
-     "Own" should win if formulas are really personal. A swap is only meaningful
-     inside one fold and one domain, because that is the only place two
-     users' coefficients share a scaler and a population model. The earlier
-     version pooled by domain across folds, which mixed units.
+     Swaps are restricted to one fold and domain so coefficients share a
+     scaler and population model.
 
   3. Weight against empirical correlation. Do the seven total-formula weights
      line up with how much each predicted emotion correlates with that user's
-     raw aesthetic scores? This is the reported total-formula interpretation;
-     it is not a residual-only diagnostic.
+     raw aesthetic scores? This uses the reported total-formula weights.
 
   4. Image swap. Keep the user's fitted formula and the target image's
      population prediction fixed, but replace its emotion vector with the
@@ -119,8 +115,16 @@ def run(cfg, pipeline=None):
     align = weight_vs_empirical(units, images)
     align.to_csv(out_dir / "weight_vs_empirical.csv", index=False)
 
+    align_peer = weight_alignment_peer_null(units, images)
+    align_peer.to_csv(out_dir / "weight_alignment_peer_null.csv", index=False)
+
     img_swap = image_swap(units, images)
     img_swap.to_csv(out_dir / "image_swap.csv", index=False)
+
+    image_control = image_swap_covariance_control(units, images)
+    image_control.to_csv(
+        out_dir / "image_swap_covariance_control.csv", index=False
+    )
 
     parts = [summarize_ablation(abl), summarize_swap(swap),
              summarize_align(align), summarize_image_swap(img_swap)]
@@ -149,13 +153,22 @@ def run(cfg, pipeline=None):
     summary = pd.concat(parts, keys=names,
                         names=["test"])
     summary.to_csv(out_dir / "summary.csv")
-    print(summary.to_string(float_format=lambda x: f"{x:.4f}"))
+    print(f"[faithfulness] wrote {len(summary)} summary rows to {out_dir}")
     return abl, swap, align, img_swap, summary
 
 
 # ------------------------------------------------------------------ 1. concept ablation
 
 def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
+    """Total emotion-space attribution diagnostic.
+
+    ``w_tot`` combines the separately fitted population emotion-space mapping
+    with the personal residual coefficient. Anchor C itself predicts with the
+    raw-feature population model plus ``delta``; therefore this intervention
+    does not literally remove a node from that raw-feature branch. Use
+    ``*_w`` instead of ``*_wtot`` only for a distinct, computational-path
+    ablation of the personal residual term.
+    """
     rows = []
     u_idx = units.set_index(KEY)
     for key, g in images.groupby(KEY, sort=False):
@@ -168,8 +181,8 @@ def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
         Z = g[[f"{e}_z" for e in CORE7]].to_numpy(float)
         zbar = np.array([float(u[f"{e}_zbar"]) for e in CORE7])
 
-        # holding emotion j at zbar_j removes exactly one term
-        # add dimension -> [50, 7] and broadcast -> matrix [50, 7] for 50 test images x when cut emotion j
+        # Subtract the assigned total emotion-space contribution for concept j.
+        # Broadcasting produces one counterfactual prediction column per concept.
         held = p[:, None] - (Z - zbar[None, :]) * w[None, :]
 
         aj = int(np.abs(w).argmax())
@@ -181,7 +194,7 @@ def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
             full_srocc=srocc(y, p), full_plcc=plcc(y, p),
             top1_srocc=s[aj], top1_plcc=pl[aj],
             bottom1_srocc=s[bj], bottom1_plcc=pl[bj],
-            # average of srocc when cut every each emotion
+            # Mean score across the seven one-concept interventions.
             avg1_srocc=float(np.mean(s)), avg1_plcc=float(np.mean(pl)),
             top_emotion=CORE7[aj], bottom_emotion=CORE7[bj]))
     return pd.DataFrame(rows)
@@ -192,9 +205,8 @@ def ablation(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
 def formula_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
     """Apply five reproducibly sampled peer formulas to this person's images.
 
-    Only within one (fold, domain): elsewhere the coefficients are in a
-    different scaler and sit on a different population model, so applying them
-    would not be a swap, it would be a unit error. ``RandomState(0)`` is reset
+    Swaps stay within one (fold, domain), where coefficients share a scaler and
+    population model. ``RandomState(0)`` is reset
     at the start of each anchored/unanchored call, making the selected peers
     and every reported value deterministic across reruns.
     """
@@ -246,12 +258,7 @@ def formula_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
 # ------------------------------------------------------ 3. weight vs empirical
 
 def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
-    """Do the coefficients agree with what each emotion actually tracks?
-
-    The paper interprets the total personal formula, so this check uses the
-    stored total weights and the user's raw aesthetic score. The component
-    residual weights are not the estimand reported in the alignment table.
-    """
+    """Compare total-formula weights with empirical emotion associations."""
     rows = []
     u_idx = units.set_index(KEY)
     for key, g in images.groupby(KEY, sort=False):
@@ -276,14 +283,65 @@ def weight_vs_empirical(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFra
             n_emotions=int(ok.sum()),
             spearman=float(spearmanr(w[ok], emp[ok]).statistic),
             pearson=float(np.corrcoef(w[ok], emp[ok])[0, 1]))
-        # Retain explicit aliases for compatibility with earlier output readers.
-        # They deliberately repeat the reported raw-score association.
+        # Explicit aliases retained for existing output readers.
         emp_raw = emp_against(y)
         ok2 = np.isfinite(emp_raw)
         if ok2.sum() >= 3:
             row["spearman_vs_raw_y"] = float(spearmanr(w[ok2], emp_raw[ok2]).statistic)
             row["pearson_vs_raw_y"] = float(np.corrcoef(w[ok2], emp_raw[ok2])[0, 1])
         rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def weight_alignment_peer_null(
+    units: pd.DataFrame, images: pd.DataFrame
+) -> pd.DataFrame:
+    """Compare each total weight vector with own and fixed-peer associations.
+
+    Peers are assigned by a cyclic shift of sorted user order within each fold
+    and domain.  The pairing is deterministic, one-to-one, and has no fixed
+    points.  This is a scope check for the shared population direction in
+    ``w_tot`` rather than a replacement for the primary alignment analysis.
+    """
+    associations = {}
+    for key, g in images.groupby(KEY, sort=False):
+        y = g["y_true"].to_numpy(float)
+        values = []
+        for emotion in CORE7:
+            z = g[f"{emotion}_z"].to_numpy(float)
+            values.append(
+                np.corrcoef(z, y)[0, 1]
+                if z.std() > 0 and y.std() > 0 else np.nan
+            )
+        associations[key] = np.asarray(values, float)
+
+    indexed = units.set_index(KEY)
+    rows = []
+    for (fold, domain), group in units.groupby(["fold", "domain"], sort=True):
+        user_ids = sorted(int(value) for value in group["user_id"].unique())
+        keys = [(fold, domain, user_id) for user_id in user_ids]
+        peer_keys = [keys[-1], *keys[:-1]]
+        for key, peer_key in zip(keys, peer_keys):
+            weights = np.array([
+                float(indexed.loc[key, f"{emotion}_wtot"])
+                for emotion in CORE7
+            ])
+
+            def correlation(values):
+                valid = np.isfinite(values)
+                return (
+                    float(spearmanr(weights[valid], values[valid]).statistic)
+                    if valid.sum() >= 3 else np.nan
+                )
+
+            own = correlation(associations[key])
+            peer = correlation(associations[peer_key])
+            rows.append(dict(zip(KEY, key)) | {
+                "peer_user_id": peer_key[2],
+                "own_spearman": own,
+                "peer_spearman": peer,
+                "excess_spearman": own - peer,
+            })
     return pd.DataFrame(rows)
 
 # --------------------------------------------------------------- 4. image swap
@@ -319,7 +377,7 @@ def image_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
         base = y_pop if variant == "C" else np.zeros_like(y_pop)
         reconstructed = base + Z @ w + bias
         
-        # sanity check: predict p - reconstructed p
+        # Validate the stored prediction against the reconstructed formula.
         if not np.allclose(reconstructed, p, rtol=1e-6, atol=1e-5):
             raise ValueError(f"saved prediction does not match formula for {key}")
 
@@ -330,10 +388,7 @@ def image_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
         ])
 
         def row_corr(predictions, target, ranked=False):
-            """
-            corr(a,b) = (a - a.mean) @ (b - b.mean) / sqrt(sum(a-a.mean)^2 * sum(b-b.mean)^2)
-            spearman <= ranked == True:  else: pearson
-            """
+            """Vectorized Pearson correlation; rank inputs for Spearman."""
             a = (rankdata(predictions, axis=1) if ranked
                  else np.asarray(predictions, float))
             b = rankdata(target) if ranked else np.asarray(target, float)
@@ -356,6 +411,66 @@ def image_swap(units: pd.DataFrame, images: pd.DataFrame) -> pd.DataFrame:
                             else srocc(y, no_image)),
             no_image_plcc=(np.nan if no_image_constant
                            else plcc(y, no_image))))
+    return pd.DataFrame(rows)
+
+
+def image_swap_covariance_control(
+    units: pd.DataFrame,
+    images: pd.DataFrame,
+    *,
+    seed: int = 0,
+    n_draws: int = 20,
+) -> pd.DataFrame:
+    """Matched-scale control for the anchored image-swap diagnostic.
+
+    For each unit, draw emotion vectors from a Gaussian with the observed
+    seven-dimensional mean and covariance.  The fixed seed and draw count make
+    this post-hoc scale check deterministic.
+    """
+    rng = np.random.default_rng(seed)
+    indexed = units.set_index(KEY)
+    rows = []
+    for key, group in images.groupby(KEY, sort=False):
+        # The released IDs are numeric but consolidated CSV loading normalizes
+        # them to strings.  Sort by their numeric value so this control is
+        # invariant to that storage dtype.
+        g = group.assign(
+            _stimulus_order=pd.to_numeric(group["stimulus_id"], errors="raise")
+        ).sort_values("_stimulus_order")
+        y = g["y_true"].to_numpy(float)
+        y_pop = g["y_pop"].to_numpy(float)
+        z = g[[f"{emotion}_z" for emotion in CORE7]].to_numpy(float)
+        row = indexed.loc[key]
+        weights = np.array([float(row[f"{emotion}_w"]) for emotion in CORE7])
+        bias = float(row["bias"])
+        mean = z.mean(axis=0)
+        covariance = np.cov(z, rowvar=False)
+        gaussian_scores = [
+            srocc(
+                y,
+                y_pop
+                + rng.multivariate_normal(mean, covariance, len(g)) @ weights
+                + bias,
+            )
+            for _ in range(n_draws)
+        ]
+        shuffled_scores = [
+            srocc(
+                y,
+                y_pop
+                + np.column_stack([
+                    rng.permutation(z[:, column])
+                    for column in range(z.shape[1])
+                ]) @ weights
+                + bias,
+            )
+            for _ in range(n_draws)
+        ]
+        rows.append(dict(zip(KEY, key)) | {
+            "n_draws": n_draws,
+            "gaussian_matched_srocc": float(np.nanmean(gaussian_scores)),
+            "column_shuffled_srocc": float(np.nanmean(shuffled_scores)),
+        })
     return pd.DataFrame(rows)
 
 # ------------------------------------------------------------------ summaries

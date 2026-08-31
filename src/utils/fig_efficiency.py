@@ -78,14 +78,12 @@ def run(cfg, err: str = "sem", domain_split: bool = False):
     import matplotlib.pyplot as plt
 
     setup()
-    # raw{tag}.csv holds one row per (unit, seed); the figure wants one row
-    # per unit, so the seed average that used to be a file on disk happens
-    # here instead. Falls back to the pre-reorganisation layout so an old
-    # output directory still plots.
+    # raw{tag}.csv holds one row per (unit, seed); average seeds before plotting.
+    # The fallback supports run directories created with the earlier layout.
     eff = cfg.output_dir / "efficiency"
     src = eff / (cfg.backbone if cfg.backbone != "clip" else "clip") / "raw.csv"
     if not src.exists():
-        src = eff / "per_unit.csv"          # layout before the reorganisation
+        src = eff / "per_unit.csv"
     df = pd.read_csv(src)
     if "seed" in df.columns:
         df = df.groupby(["n_train", "mediator", "head", "fold", "domain",

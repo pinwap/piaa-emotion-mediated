@@ -5,7 +5,8 @@ database covers faithfulness diagnostics.  Two analyses use separate fitted
 objects and therefore need their own compact release tables:
 
 * the ground-truth-emotion upper bound (one row per user-domain unit), and
-* emotion-importance coefficients (setting x emotion x user-domain unit).
+* emotion-importance coefficients (setting x emotion x user-domain unit), and
+* the four seed-averaged MLP architecture conditions used by the supplement.
 
 The two-row reference summary is also retained because test--retest
 reliability is computed from licensed raw ratings that cannot be redistributed.
@@ -23,6 +24,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from src.experiments.make_holm_statistics import (
+    mlp_architecture_data, mlp_architecture_source_paths,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -165,8 +170,9 @@ def _reference_bounds(ground_truth: pd.DataFrame) -> pd.DataFrame:
 def build(output_dir: Path) -> None:
     ground_truth = _ground_truth_units()
     importance = _importance_units()
+    mlp_architecture = mlp_architecture_data(ROOT, prefer_release=False)
     bounds = _reference_bounds(ground_truth)
-    manifest = pd.DataFrame([
+    manifest_rows = [
         {
             "kind": "ground_truth_upper_bound",
             "source_file": GT_SOURCE.relative_to(ROOT).as_posix(),
@@ -185,13 +191,24 @@ def build(output_dir: Path) -> None:
             "source_rows": len(bounds),
             "sha256": _sha256(BOUNDS_SOURCE),
         },
-    ])
+    ]
+    for source in mlp_architecture_source_paths(ROOT):
+        manifest_rows.append({
+            "kind": "mlp_architecture",
+            "source_file": source.relative_to(ROOT).as_posix(),
+            "source_rows": len(pd.read_csv(source, low_memory=False)),
+            "sha256": _sha256(source),
+        })
+    manifest = pd.DataFrame(manifest_rows)
     _atomic_csv(ground_truth, output_dir / "upper_bound_units_final.csv")
     _atomic_csv(importance, output_dir / "emotion_importance_units_final.csv")
+    _atomic_csv(mlp_architecture,
+                output_dir / "mlp_architecture_units_final.csv")
     _atomic_csv(bounds, output_dir / "reference_bounds_final.csv")
     _atomic_csv(manifest, output_dir / "auxiliary_sources.csv")
     print(f"ground-truth upper-bound units: {len(ground_truth):,}")
     print(f"emotion-importance rows: {len(importance):,}")
+    print(f"MLP architecture units: {len(mlp_architecture):,}")
     print(f"reference-bound summary rows: {len(bounds):,}")
     print(f"wrote auxiliary release databases to {output_dir}")
 

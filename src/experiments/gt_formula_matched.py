@@ -4,8 +4,8 @@ This is a diagnostic companion to ``user_formula_gt.csv``.  It keeps true
 per-user emotion ratings as the Stage-2 input, but otherwise mirrors the
 deployable predicted-emotion formula: a training-group scaler, a population
 emotion anchor, and one ridge penalty selected on validation-user units per
-(fold, domain).  It writes a new file and never overwrites the paper's
-existing formula outputs.
+(fold, domain). It writes a separate diagnostic file without overwriting the
+canonical formula outputs.
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ output/upper_bounds.csv, written by make_upper_bounds.py.
 The reported configuration is fixed at the top: Qwen3-VL 8B, the
 population-anchored Stage-2, 100 ratings per user, averaged over three seeds.
 
-Row set, after the reviewer settled the design:
+Reported row set:
 
   Population (GIAA)     no personalization at all
   Direct                no mediator, per-user head on raw features

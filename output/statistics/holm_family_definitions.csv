@@ -1,11 +1,11 @@
 table,reported,source,family_by,tests_per_family,contrasts
 table1,Main Table 1,output/raw_all_final.csv,domain x metric,4,"Hybrid Ridge vs Population, Direct, Random, PCA"
-tableS_mlp_architecture,MLP architecture supplementary table,output/MLP_SWEEP/ and output/thundering_lobster_modal_all_runs/,domain x metric,3,"joint lambda=0.1, 1 and 10 versus the sequential MLP; Ridge is descriptive only"
-tableS_distribution,Distribution-valued Stage-1 targets,output/efficiency/clip/raw_C_memo-emo_sd-emo_hist.csv,metric; Average only,12,"Hybrid 7-d, 14-d and 35-d versus Population at N = 10, 25, 50, 100"
+tableS_mlp_architecture,MLP architecture supplementary table,output/mlp_architecture_units_final.csv,domain x metric,3,"joint lambda=0.1, 1 and 10 versus the sequential MLP; Ridge is descriptive only"
+tableS_distribution,Distribution-valued Stage-1 targets,output/raw_all_final.csv,metric; Average only,12,"Hybrid 7-d, 14-d and 35-d versus Population at N = 10, 25, 50, 100"
 table2_anchor,Anchored vs unanchored table,output/raw_all_final.csv,metric; Average only; both halves combined,8,"Hybrid vs Population, Direct, Random, PCA under both anchored and unanchored settings"
 tableS2,Backbone table,output/raw_all_final.csv,domain x metric,5,Hybrid vs Population across five backbones
 table_efficiency,Efficiency table/figure,output/raw_all_final.csv,domain x metric,8,"Hybrid and Direct vs Population at N = 10, 25, 50, 100"
 figure_faithfulness,Faithfulness figure and detail tables,output/faithfulness/*.csv,domain x metric; correlated panels combined,13,"formula swap (6), concept ablation (3), image swap (4)"
 table_weight_alignment,Weight-alignment table,output/faithfulness/weight_vs_empirical.csv,domain x metric,1,one-sided alignment greater than zero
-stage1_accuracy,Stage-1 emotion accuracy,output/stage1_emotion_acc/,descriptive only,0,none
-emotion_importance,Emotion importance,output/stage2_emotion_importance_matched/,descriptive only,0,none
+stage1_accuracy,Stage-1 emotion accuracy,output/stage1_accuracy.csv,descriptive only,0,none
+emotion_importance,Emotion importance,output/emotion_importance_units_final.csv,descriptive only,0,none

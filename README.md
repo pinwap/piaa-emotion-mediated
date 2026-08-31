@@ -6,9 +6,9 @@ instead of predicting from image features directly.
 
 The core idea is a mediator that can be read: a model shared across all
 users predicts how an image tends to make people feel (7 emotions), and
-then a per-user linear formula with only 7 parameters turns those emotions
-into that user's score - compared to a direct approach that needs 512
-parameters per user and is not interpretable.
+then a per-user linear formula with only 7 coefficients turns those emotions
+into that user's score, compared with an unrestricted head whose width follows
+the visual backbone (512--4,096 features in the reported experiments).
 
 
 ## Code layout
@@ -25,18 +25,13 @@ src/
     extract_vlm_features.py    extract raw Qwen3-VL features (all layers)
     select_vlm_layer.py        pick one layer out of the raw VLM output
     finetune_clip_perfold.py   fine-tune CLIP per fold (leak-free)
-    layer_sweep_legacy.py      sweep layers to pick the VLM layer (uses the
-                                pre-v4 split; a fast upstream screening step,
-                                not part of the reported pipeline - see
-                                docs/DATA.md "Why layer 17 / layer 15")
   modeling/
     backbones.py           CLIP / per-fold CLIP-ft / Qwen3-VL
     mediators.py            identity, emotion, pca, random, shuffled
-    heads.py                RidgeHead, MLPHead
+    heads.py                RidgeHead, SparseLinearHead, MLPHead
     pipeline.py             wires the three together and runs the evaluation loop
   utils/
-    metrics.py              SROCC, PLCC, CCC (unused, kept in the CSVs only), Wilcoxon, effective DoF
-    tables.py               per-unit results -> summary CSV (mean/sd/best/sig)
+    metrics.py              SROCC, PLCC, Wilcoxon, participant-cluster bootstrap, effective DoF
     plots.py                figures
     verify.py               checks the data split is leak-free
   experiments/              one file per reported table
@@ -96,15 +91,32 @@ recording every setting that could affect the numbers, alongside
 The reviewer release keeps a compact numerical core rather than every
 intermediate run folder: `raw_all_final.csv`, the consolidated formula-unit
 and formula-image databases, Stage-1 accuracy, the GT upper-bound units,
-emotion-importance units, the two-row reference-bound summary, and the
+emotion-importance units, the compact MLP-architecture units, the two-row
+reference-bound summary, within-user test--retest units, the controlled regularizer units, and the
 Holm-adjusted audit.
 This lets a reviewer regenerate and inspect the reported summaries without
 repeating model training. Generated LaTeX fragments and figures are not
-required in the release; the CSVs contain every reported numerical value, and
-the figure script rebuilds the plotted results directly from them.
+required in the release; the CSVs contain every reported numerical value. The
+scripts rebuild the quantitative efficiency and faithfulness plots and
+reproduce the disclosed ranking used to select the qualitative example.
 
 
 ## Verifying results match the paper
+
+To rebuild the downstream faithfulness results, all 300 audited comparisons,
+the paper-facing table fragments, and the data figures from the compact
+release CSVs, without retraining or modifying the frozen outputs, run:
+
+```bash
+uv run python reproduce.py
+```
+
+The isolated results are written under `tmp/release_reproduction/`. The
+script also checks the regenerated `holm_corrected.csv` row-for-row against
+the frozen audit. This quick audit does not require the licensed raw ratings
+or extracted visual features.
+
+To verify the split against the licensed data after placing it locally, run:
 
 ```bash
 uv run main.py verify --splits
@@ -116,7 +128,7 @@ this should print (0 overlapping images in every fold/domain).
 
 ### Reference values for a quick sanity check
 
-If a run gives numbers far from these, something is wrong.
+The following values identify the frozen primary configuration.
 
 | check | expected value |
 |---|---|
@@ -136,10 +148,12 @@ If a run gives numbers far from these, something is wrong.
   get used - it prints the row count on load, should always say 83,327.
 - Fine-tuned backbones must load per-fold features (`PerFoldBackbone` in
   `backbones.py`), not a single all-user file, or it leaks.
-- `mediators.py`'s random/shuffled mediators draw from one RNG per fold in
-  a fixed order (R, then the permutation) - don't reorder those two lines.
-- Model comparisons use `wilcoxon_paired` (paired, keyed on
-  fold/domain/user) everywhere, not a plain two-sample test.
+- `mediators.py`'s Random and Shuffled mediators draw from one RNG per fold
+  in a fixed order (projection, then permutation); preserve that order for
+  deterministic reproduction.
+- Domain-specific model comparisons use `wilcoxon_paired` (paired, keyed on
+  fold/domain/user); pooled Average inference uses the participant-cluster
+  bootstrap rather than treating 387 domain rows as independent.
 - MLP learning rate is selected on the held-out validation-user group from
   the grid in `src/config.py`; the 500-epoch budget and zero weight decay are
   fixed in advance, and early stopping is disabled.
@@ -156,7 +170,8 @@ bootstrap over 129 participants.
 Holm-adjusted p-values. `output/statistics/HOLM_FAMILY_MAP.md` gives the
 human-readable family definitions used for every table.
 
-The consolidated databases and their provenance manifests are rebuilt with:
+For maintainers who also have the historical intermediate run folders, the
+consolidated databases and their provenance manifests are rebuilt with:
 
 ```bash
 uv run python -m src.experiments.make_raw_all_final \
@@ -166,9 +181,11 @@ uv run python -m src.experiments.make_formula_database --output-dir output
 uv run python -m src.experiments.make_release_auxiliary --output-dir output
 ```
 
-For a non-destructive release audit, point `--output`, `--manifest-output`,
-and the statistics/table/figure scripts at a separate directory as documented
-in `docs/RELEASE_MANIFEST.md`.
+Those historical intermediate folders are not part of the compact reviewer
+package. Their manifests and SHA-256 hashes are retained for provenance, but
+reviewers should use `uv run python reproduce.py` for the supported exact
+downstream reproduction path. Full training from the licensed ratings and
+extracted features produces fresh unit-level run files.
 
 ## Adding a new experiment
 

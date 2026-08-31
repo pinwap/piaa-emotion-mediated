@@ -13,14 +13,13 @@ Usage:  python -m src.experiments.make_tab_stage1_acc
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from src.experiments.paper_paths import TABLES, ensure     # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -38,16 +37,64 @@ ORDER = ["amused", "distasteful", "impressed", "intellectual",
          "motivated", "nostalgic", "sad"]
 
 
+def summarize(per_fold: pd.DataFrame) -> pd.DataFrame:
+    """Build the paper summary from the compact fold-domain release table."""
+    required = {"fold", "domain", "emotion", "srocc", "plcc"}
+    missing = required.difference(per_fold.columns)
+    if missing:
+        raise ValueError(f"Stage-1 source is missing columns: {sorted(missing)}")
+    if len(per_fold) != 105:
+        raise ValueError(
+            "Stage-1 source must contain 5 folds x 3 domains x 7 emotions "
+            f"(105 rows), got {len(per_fold)}"
+        )
+
+    rows = []
+    for emotion in ORDER:
+        d = per_fold[per_fold.emotion == emotion]
+        row = {"emotion": emotion}
+        for domain, _label in DOMAINS[:3]:
+            values = d[d.domain == domain]
+            if len(values) != 5:
+                raise ValueError(
+                    f"expected five fold rows for {emotion}/{domain}, got {len(values)}"
+                )
+            for metric in ("srocc", "plcc"):
+                x = values[metric].astype(float)
+                row[f"{domain}_{metric}_mean"] = x.mean()
+                row[f"{domain}_{metric}_sd"] = x.std(ddof=1)
+                row[f"{domain}_{metric}_sem"] = x.std(ddof=1) / len(x) ** 0.5
+        for metric in ("srocc", "plcc"):
+            x = d[metric].astype(float)
+            row[f"avg_{metric}_mean"] = x.mean()
+            row[f"avg_{metric}_sd"] = x.std(ddof=1)
+            row[f"avg_{metric}_sem"] = x.std(ddof=1) / len(x) ** 0.5
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def _num(x: float) -> str:
     s = f"{x:.3f}"
     return s.replace("0.", ".", 1) if s.startswith(("0.", "-0.")) else s
 
 
-def main() -> int:
-    if not SRC.exists():
-        raise SystemExit(f"missing {SRC}; run `main.py stage1_emotion_acc "
-                         f"--backbone qwen8b` first")
-    d = pd.read_csv(SRC).set_index("emotion")
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=SRC)
+    parser.add_argument("--output", type=Path,
+                        default=ROOT / "tmp" / "tables" /
+                        "tab4_emotion_accuracy.tex")
+    args = parser.parse_args(argv)
+
+    if not args.source.exists():
+        raise SystemExit(
+            f"missing {args.source}; use output/stage1_accuracy.csv from the "
+            "compact release, or run `main.py stage1_emotion_acc "
+            "--backbone qwen8b` first"
+        )
+    source = pd.read_csv(args.source)
+    d = (summarize(source) if {"fold", "domain", "srocc", "plcc"}
+         .issubset(source.columns) else source).set_index("emotion")
     missing = [e for e in ORDER if e not in d.index]
     if missing:
         raise SystemExit(f"summary.csv has no rows for {missing}")
@@ -79,15 +126,11 @@ def main() -> int:
 
     out += [r"\bottomrule", r"\end{tabular}"]
 
-    ensure()
-    dest = TABLES / "tab4_emotion_accuracy.tex"
+    dest = args.output
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text("\n".join(out) + "\n", encoding="utf-8")
 
-    print("Stage-1 recovery, average over domains (SROCC / PLCC):")
-    for e in ORDER:
-        print(f"  {e:14s} {d.loc[e, 'avg_srocc_mean']:.4f} / "
-              f"{d.loc[e, 'avg_plcc_mean']:.4f}")
-    print(f"\nwrote {dest}")
+    print(f"[stage1 table] wrote {len(ORDER)} emotion rows to {dest}")
     return 0
 
 

@@ -79,13 +79,14 @@ one trained on 100 are scored on the exact same images.
 
 ## 3. Using only first-session ratings
 
-About 5% of the data (4,509 pairs) are images a user rated twice, in
-separate sittings. All experiments **use only the first rating** and
-reserve the second one exclusively for measuring test-retest reliability.
-This leaves 83,327 of 87,836 rows in use.
+About 5% of the data comprise 4,509 user--image pairs with a repeated
+observation. All experiments **use only the first occurrence** and reserve
+the second exclusively for measuring test--retest reliability. This leaves
+83,327 of 87,836 rows in use.
 
-"first" means first row in the file. Checked that
-both ratings of a pair always land in the same split group.
+"First" means first row in the released file; the file has no separate
+timestamp field from which to reconstruct a different ordering. Both
+observations of a pair always belong to the same user split.
 
 ## 4. Metrics
 
@@ -126,7 +127,11 @@ the control behaving correctly, not a bug.
 
 We also report effective degrees of freedom, defined as
 `tr(Z(Z'Z + alpha*I)^-1 Z')` at the selected alpha, computed on standardized
-features and averaged across units. This is defined only for linear heads.
+features and averaged across units. The diagnostic uses the fitted design
+matrix directly, so a design already standardized by the anchored pipeline is
+not standardized a second time. Effective degrees of freedom is descriptive,
+is defined only for linear heads, and is not used for model selection or any
+statistical test.
 
 ### MLP
 
@@ -142,8 +147,8 @@ the fixed 500-epoch budget specified in advance. Early stopping is disabled.
 | name | feature file | dim |
 |---|---|---|
 | CLIP frozen | `clip_features.npz` | 512 |
-| CLIP-ft (score) | `clip_ftpf_overall_v4_fold{k}.npz` | 768 |
-| CLIP-ft (emotion) | `clip_ftpf_emotion_v4_fold{k}.npz` | 768 |
+| CLIP-ft (score) | `clip_ftpf_overall_v4_fold{k}.npz` | 512 |
+| CLIP-ft (emotion) | `clip_ftpf_emotion_v4_fold{k}.npz` | 512 |
 | Qwen3-VL 4B | `vlm4b_LT15.npz` | 2560 |
 | Qwen3-VL 8B | `vlm_LT15.npz` | 4096 |
 
@@ -163,10 +168,12 @@ Neither is included when identifying the best-performing predictive model.
 
 ## 8. Faithfulness tests
 
-- **Ablation** holds one emotion constant at its support-set mean (the
-  highest-weighted, an average-weighted, or the lowest-weighted concept)
-  and re-scores the user, to see how much each concept's presence is
-  actually load-bearing for that user's predictions.
+- **Ablation** assigns each concept the total emotion-space coefficient
+  `w_tot = w_pop + delta_user`, holds one concept at its support-set mean,
+  and re-scores the user. This is an attribution diagnostic for the submitted
+  total-weight interpretation. The executable Anchor C predictor retains a
+  population prediction learned directly from raw image features, so the
+  diagnostic does not algebraically decompose that population branch.
 - **Formula swap** compares a user's own formula against the population-mean
   formula and against five other users' formulas sampled without replacement
   by a fixed random seed. Sampling is restricted to the same fold and domain,
@@ -175,8 +182,8 @@ Neither is included when identifying the best-performing predictive model.
   emotion vector by another evaluation image's vector. The anchored analysis
   uses all 49 nonzero cyclic shifts; a no-image control uses the support-set
   mean emotion vector. The unanchored swap is reported as a diagnostic.
-- **Weight vs. empirical correlation** compares the 7 weights the ridge
-  head learned against the true correlation between each emotion and that
+- **Weight vs. empirical correlation** compares the seven total emotion-space
+  weights with the empirical correlation between predicted emotions and that
   user's own ratings.
 
 ## 9. Reproducibility

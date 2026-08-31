@@ -1,12 +1,7 @@
-r"""The swap experiment reported twice: with the population anchor and without.
+r"""Generate the anchored and unanchored mediator comparison.
 
-The reviewer asked for both, and the reason shows up in the numbers. The
-anchor hands every row the population prediction to start from, so it helps a
-row in proportion to how little that row's mediator had already learned. The
-content-free control gains most and the emotion bottleneck least, which
-compresses exactly the gaps the mediator comparison rests on. Reporting only
-the anchored table would hide that; reporting only the unanchored one would
-drop the design the rest of the paper uses.
+The two settings show how the population prediction changes each mediator's
+performance under the same evaluation protocol.
 
 Both halves are the same units, the same seeds and the same selection
 protocol -- only the Stage-2 anchor differs. The population row is identical

@@ -1,28 +1,9 @@
-"""Do the coefficients reflect real emotion importance, or just how easy each
-emotion is to predict?
+"""Summarize emotion-weight magnitude and sign across fitted formulas.
 
-Reads the formulas `main.py formulas` wrote and compares two of them per unit:
-
-  gt        the head fitted on the emotions the user actually reported
-  pred      the head fitted on the emotions Stage-1 predicted
-
-If an emotion carries a low weight in the predicted setting only because it is
-hard to predict, rather than because it does not matter to that person, the
-ground-truth weight should be higher.
-
-Which weight vector to read, and why it matters here more than anywhere
-----------------------------------------------------------------------
-Under the population anchor the personal head returns `delta`, a departure
-from the population formula, fitted on a residual and therefore shrunk toward
-zero and near-symmetric about it. Its sign is close to a coin flip for every
-emotion, so `pct_positive` computed on delta says nothing about people. This
-table reports `w_total = w_pop + delta`, the absolute personal formula, which
-is the vector whose sign means "this person weights this emotion up", and the
-one that is comparable with the ground-truth formula.
-
-Both are written out, so the difference can be seen rather than taken on
-trust: the `delta` block is there precisely to show that its split is an
-artefact of the anchor.
+``gt`` uses heads fitted to reported emotions. ``pred`` uses the anchored
+model's total emotion-space weight ``w_pop + delta``. The residual coefficient
+``delta`` is retained as a separate diagnostic and is not used for the
+reported absolute-formula interpretation.
 
 Output: output/stage2_emotion_importance/per_unit.csv, summary.csv
 """
@@ -36,12 +17,8 @@ import pandas as pd
 from src.data.data import CORE7, DOMAINS
 from src.utils.metrics import participant_cluster_bootstrap, sem
 
-#: A coefficient this small is zero for our purposes, and the sign of a zero is
-#: not a fact about anyone's taste. Ridge shrinks weak emotions all the way
-#: down, and whether such a weight lands at +5e-31, -3e-31 or 0.0 depends on
-#: the platform's last bit, which moved the reported percentage by a unit
-#: between machines. Nothing sits between 1e-9 and 1e-3, so this threshold
-#: touches no coefficient that means anything.
+# Treat numerical values below this tolerance as zero when reporting sign.
+# No released coefficient magnitude lies between 1e-9 and 1e-3.
 SIGN_TOL = 1e-9
 
 SETTINGS = [
@@ -50,8 +27,7 @@ SETTINGS = [
     ("pred", "user_formula.csv", "_wtot",
      "fitted on Stage-1's predicted emotions, absolute formula w_pop + delta"),
     ("delta", "user_formula.csv", "_w",
-     "the anchor's residual fit; its sign split is an artefact, kept for "
-     "comparison only"),
+     "personal residual coefficient under the population anchor"),
 ]
 
 
@@ -60,9 +36,8 @@ def run(cfg, pipeline=None):
     d = Path(cfg.output_dir) / "formulas"
     if not (d / "user_formula.csv").exists():
         raise FileNotFoundError(
-            f"{d} has no user_formula.csv. Run `main.py formulas` first: this "
-            f"table reads the fitted formulas rather than refitting, so that "
-            f"what it reports is what the tables report.")
+            f"{d} has no user_formula.csv. Run `main.py formulas` first; "
+            "this analysis reads the stored fits without refitting.")
 
     cache = {}
     rows = []
@@ -82,31 +57,14 @@ def run(cfg, pipeline=None):
     summary = summarize(per_unit)
     summary.to_csv(out_dir / "summary.csv", index=False)
 
-    print(f"[emotion importance] {per_unit.user_id.nunique()} users, "
-          f"{len(per_unit) // (len(CORE7) * len(SETTINGS))} units per setting\n")
-    for name, _f, _s, note in SETTINGS:
-        print(f"  {name:6s} {note}")
-    print()
-    show = summary.pivot(index="emotion", columns="setting",
-                         values="avg_pct_pos").round(1)
-    show = show.reindex([e for e in CORE7])
-    print("share of units with a positive coefficient (%)")
-    print(show.to_string())
-    print("\nthe delta column sits near 50 for every emotion because a residual "
-          "fit is centred on zero.\ngt and pred are the columns that say "
-          "whether people agree about an emotion.")
+    n_units = len(per_unit) // (len(CORE7) * len(SETTINGS))
+    print(f"[emotion importance] wrote {len(per_unit):,} rows "
+          f"({n_units} units per setting) to {out_dir}")
     return per_unit, summary
 
 
 def summarize(per_unit: pd.DataFrame) -> pd.DataFrame:
-    """mean/sd/sem are computed on |w| (magnitude), never on the signed w:
-    a concept most people weight strongly in ONE direction (e.g. Distasteful,
-    negative for ~84% of users) must still come out as high-importance, not
-    cancel toward zero. pct_pos is the separate, signed diagnostic that says
-    which direction people lean; it is computed on the raw signed w, not on
-    the magnitude, so it still means "share of units with a positive
-    coefficient" rather than always reading ~100%.
-    """
+    """Summarize magnitude with ``abs(w)`` and sign with the original ``w``."""
     rows = []
     for (setting, emotion), g in per_unit.groupby(["setting", "emotion"]):
         r = {"setting": setting, "emotion": emotion}
@@ -123,9 +81,7 @@ def summarize(per_unit: pd.DataFrame) -> pd.DataFrame:
         r["avg_sd"] = float(absw.std(ddof=1))
         r["avg_sem"] = participant_cluster_bootstrap(
             absw, g["user_id"])["sem"]
-        # the average of the three domain shares, not the pooled share. The
-        # domains are 129 units each so the two agree to a rounding place, but
-        # which one is reported has to be stated rather than inferred.
+        # Report the unweighted mean of the three equal-sized domain shares.
         r["avg_pct_pos"] = float(np.mean(
             [r[f"{dom}_pct_pos"] for dom in DOMAINS]))
         r["pooled_pct_pos"] = 100 * float((allw > SIGN_TOL).mean())

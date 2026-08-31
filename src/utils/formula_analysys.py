@@ -3,11 +3,11 @@
 One place for everything the notebook and the command-line picker both need,
 so the two cannot drift apart and neither has to re-implement a criterion.
 
-The export itself comes from `main.py formula_weights`, which re-runs the
-reported pipeline and writes two files:
+The release database is built by `make_formula_database.py` from the reported
+formula runs and writes two files:
 
-    output/formula_weights/user_formula_weights.csv   one row per unit
-    output/formula_weights/per_image_predictions.csv  one row per eval image
+    output/formula_units_final.csv   one row per unit and setting
+    output/formula_images_final.csv  one row per evaluation image and setting
 
 Under the population anchor a prediction splits into two named parts:
 
@@ -40,11 +40,13 @@ DOMAIN_TO_FOLDER = {"art": "art", "fashion": "fashion",
 
 # ---------------------------------------------------------------- loading
 
-def load(d="output/formula_weights") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(units, images). Both indexed by fold / domain / user_id."""
+def load(d="output", setting="anchored") -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load one setting from the consolidated formula release databases."""
     d = Path(d)
-    units = pd.read_csv(d / "user_formula_weights.csv")
-    images = pd.read_csv(d / "per_image_predictions.csv", low_memory=False)
+    units = pd.read_csv(d / "formula_units_final.csv")
+    images = pd.read_csv(d / "formula_images_final.csv", low_memory=False)
+    units = units[units["setting"] == setting].copy()
+    images = images[images["setting"] == setting].copy()
     images["stimulus_id"] = images["stimulus_id"].astype(str)
     return units, images
 
@@ -68,7 +70,7 @@ def image_path(sample_dir, domain: str, stimulus_id, index: pd.DataFrame) -> Pat
     they were cut from, which ends in .mp4, while what was rated and what the
     features were extracted from is the still frame sitting next to it under
     the same stem. So the exact name is tried first and the .jpg stem second.
-    The three domains account for 2,345 + 2,084 + 2,097 = 6,526 stimuli, which
+    The three domains account for 2,345 + 2,082 + 2,099 = 6,526 stimuli, which
     is the count the dataset paper reports, so the landscape domain here is
     the image set and not the video one.
     """
@@ -191,7 +193,7 @@ def contrast_pairs(units: pd.DataFrame, images: pd.DataFrame,
             # on the shared image the two predictions differ on most, how much
             # of that difference does the emotion being illustrated account
             # for? A pair whose gap is really carried by a different emotion
-            # makes a panel that says the wrong thing.
+            # would not represent the intended same-image comparison.
             share = np.nan
             if len(dp):
                 sid = dp.idxmax()
@@ -215,7 +217,7 @@ def contrast_pairs(units: pd.DataFrame, images: pd.DataFrame,
                 f"{emotion}_share": share,
                 # one sortable number: the panel needs the two predictions to
                 # separate AND the emotion on show to be what separated them.
-                # Either alone picks a pair that illustrates the wrong thing.
+                # Both conditions are required by the qualitative criterion.
                 "panel_score": (share * float(dp.max())
                                 if len(dp) and share == share else np.nan),
                 "srocc_hi": hi.srocc, "srocc_lo": lo.srocc,
@@ -306,7 +308,7 @@ def formula_table(units: pd.DataFrame, images: pd.DataFrame,
     if r0.empty:
         return pd.DataFrame()
     r0 = r0.iloc[0]
-    cols = {"predicted (1-7)": [float(r0[f"{e}_pred"]) for e in CORE7],
+    cols = {"predicted emotion (1-5)": [float(r0[f"{e}_pred"]) for e in CORE7],
             "z (standardised)": [float(r0[f"{e}_z"]) for e in CORE7]}
     for uid in user_ids:
         w = units[(units.fold == fold) & (units.domain == domain)

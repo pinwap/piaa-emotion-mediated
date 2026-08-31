@@ -1,4 +1,4 @@
-# split_v4_10group — leakage-free 5-fold split (Hayashi-san design)
+# split_v4_10group — leakage-free 5-fold split
 
 สร้างด้วย `src/data/build_group_split.py` (deterministic — rerun ได้ผลเดิม)
 แก้ปัญหา protocol 3 ข้อพร้อมกัน โดยใช้โครงสร้าง 10-group ของ XPASS (คอลัมน์ `set`)

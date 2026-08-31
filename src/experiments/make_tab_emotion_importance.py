@@ -25,6 +25,7 @@ Usage:  python -m src.experiments.make_tab_emotion_importance
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.experiments.paper_paths import TABLES, ensure     # noqa: E402
+from src.experiments.stage2_emotion_importance import summarize  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -57,11 +58,24 @@ def _cell(mean: float, se: float, pct: float, bold: bool) -> str:
     return r"\textbf{" + body + "}" if bold else body
 
 
-def main() -> int:
-    if not SRC.exists():
-        raise SystemExit(f"missing {SRC}; run `main.py "
-                         f"stage2_emotion_importance --backbone qwen8b` first")
-    d = pd.read_csv(SRC)
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=SRC)
+    parser.add_argument("--output", type=Path,
+                        default=ROOT / "tmp" / "tables" /
+                        "tab5_emotion_importance.tex")
+    args = parser.parse_args(argv)
+
+    if not args.source.exists():
+        raise SystemExit(
+            f"missing {args.source}; use "
+            "output/emotion_importance_units_final.csv from the compact "
+            "release, or run `main.py stage2_emotion_importance "
+            "--backbone qwen8b` first"
+        )
+    source = pd.read_csv(args.source)
+    d = (summarize(source) if {"fold", "domain", "user_id", "w"}
+         .issubset(source.columns) else source)
 
     out = [r"\begin{tabular}{l cccc c}", r"\toprule",
            r"\textbf{Emotion} & "
@@ -85,18 +99,11 @@ def main() -> int:
 
     out += [r"\bottomrule", r"\end{tabular}"]
 
-    ensure()
-    dest = TABLES / "tab5_emotion_importance.tex"
+    dest = args.output
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text("\n".join(out) + "\n", encoding="utf-8")
 
-    print("mean |weight| (share positive), average over domains, by rank:")
-    for tag, title in BLOCKS:
-        print(f"\n  {title}")
-        for _, r in d[d.setting == tag].sort_values("rank").iterrows():
-            print(f"    {int(r['rank'])}. {r['emotion']:<13} "
-                  f"{r['avg_mean']:.3f} +- {r['avg_sem']:.3f} "
-                  f"({r['avg_pct_pos']:.1f}% positive)")
-    print(f"\nwrote {dest}")
+    print(f"[emotion-importance table] wrote {len(d)} rows to {dest}")
     return 0
 
 

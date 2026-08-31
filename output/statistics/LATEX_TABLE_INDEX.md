@@ -1,9 +1,8 @@
 # Corrected LaTeX table index
 
-Every file below is generated from seed-averaged user--domain units and uses
-the Holm-adjusted decisions in `holm_corrected.csv`. Each file contains a
-`tabular` block, not a complete floating `table` environment. Replace the
-current `tabular` in Overleaf and retain the manuscript's caption and label.
+Every inferential file below is generated from seed-averaged user--domain
+units and uses the Holm-adjusted decisions in `holm_corrected.csv`. Each file
+contains a `tabular` block, not a complete floating `table` environment.
 
 | Result | LaTeX file | Marker definition |
 |---|---|---|
@@ -15,16 +14,18 @@ current `tabular` in Overleaf and retain the manuscript's caption and label.
 | Concept ablation | `table_faithfulness_ablation_corrected.tex` | versus Full |
 | Image swap | `table_faithfulness_image_swap_corrected.tex` | versus Correct image in the same setting |
 | Weight alignment | `table_weight_alignment_corrected.tex` | one-sided alignment greater than zero |
-| MLP architecture | `tableS_mlp_corrected.tex` | joint setting versus sequential MLP |
-| Distribution-valued mediator | `tableS_distribution_corrected.tex` | Hybrid width versus Population |
+| MLP baseline (descriptive) | `tableS_mlp_baseline_corrected.tex` | no marker |
+| MLP architecture (descriptive) | `tableS_mlp_architecture_corrected.tex` | no marker |
+| Distribution-valued mediator (descriptive) | `tableS_distribution_corrected.tex` | no marker |
 
 `tableS_distribution_full_corrected.tex` is also provided as a complete table
 environment with a corrected caption and tablenotes, ready to replace the full
 distribution table in the manuscript.
 
-The Stage-1 emotion-accuracy, emotion-importance, and regularizer-ablation
-tables are descriptive. They contain no inferential marker and therefore do
-not need Holm-corrected replacement tables.
+The Stage-1 emotion-accuracy, emotion-importance, MLP, distribution, and
+regularizer-ablation tables are descriptive. They contain no inferential
+marker. MLP and distribution contrasts remain in the audit CSV for
+traceability but are not used to make significance claims in the manuscript.
 
 ## Efficiency SEM correction
 

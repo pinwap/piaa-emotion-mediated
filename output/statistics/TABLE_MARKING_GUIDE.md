@@ -44,7 +44,7 @@ survive correction.
 - Image swap: all displayed, defined comparisons remain significant in both
   metrics. The unanchored no-image condition is undefined and is not tested.
 
-The three correlated panels are corrected together as one 12-test family per
+The three correlated panels are corrected together as one 13-test family per
 domain and metric.
 
 ## Weight alignment
@@ -53,23 +53,19 @@ All one-sided alignment-greater-than-zero tests remain significant.
 
 ## MLP architecture
 
-The sequential MLP is the inferential reference; Ridge is descriptive. Each
-domain-metric family contains the three joint-loss weights. Remove two
-existing double daggers from joint lambda=1:
-
-- Artwork SROCC
-- Fashion SROCC
-
-The corrected LaTeX is in `tableS_mlp_corrected.tex`.
+The final supplementary table is descriptive and carries no daggers or
+double-daggers. The three joint-versus-sequential contrasts remain in
+`holm_corrected.csv` as an audit trail, but they do not support an inferential
+claim in the manuscript. Use `tableS_mlp_architecture_corrected.tex`.
 
 ## Distribution-valued mediator
 
-The family contains 12 pooled-Average SROCC tests: three mediator widths at
-four rating budgets, each versus Population. No significance decision changes.
-`tableS_distribution_corrected.tex` marks the adjusted decisions with daggers;
-exact adjusted p-values remain in `tableS_distribution_holm_corrected.csv`.
+The final supplementary table is descriptive and carries no daggers. The 12
+pooled-Average SROCC contrasts remain in `holm_corrected.csv` as an audit
+trail, but the manuscript does not use them to claim statistical
+significance. Use `tableS_distribution_corrected.tex`.
 
 ## Descriptive tables
 
-Stage-1 emotion accuracy, emotion importance, and the regulariser ablation do
-not contain hypothesis tests and require no Holm correction.
+Stage-1 emotion accuracy, emotion importance, MLP, distribution, and the
+regulariser ablation do not carry manuscript hypothesis tests.

@@ -47,7 +47,7 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("experiment",
                     choices=["table1", "backbone", "efficiency", "faithfulness",
-                            "formula_weights", "formulas",
+                            "formulas",
                             "stage1_emotion_acc",
                             "stage2_emotion_importance", "gt_formula_matched",
                             "fig_faithfulness",
@@ -63,14 +63,15 @@ def main(argv=None) -> int:
                          "byte-identical (e.g. --repro efficiency)")
     ap.add_argument("--seed", default=None,
                     help="table1: run only these seeds, e.g. --seed 1 "
-                         "(seeds are independent, so they can run in parallel; "
-                         "the last one merges whatever is on disk)")
+                         "(seeds are independent and may run in parallel; "
+                         "omit --seed to run and merge all three)")
     ap.add_argument("--stage2", default=None, choices=["plain", "A", "B", "C"],
-                    help="table1: how the personal head relates to the population model."
+                    help="table1: how the personal head relates to the population model. "
                          "plain=shrink toward 0, "
                          "A=GIAA prediction as an extra feature, "
                          "B=shrink toward the pooled training-group weights, "
-                         "C=fit on the residual against GIAA. Each writes its (The final Pop-Anchored in paper) "    
+                         "C=fit on the residual against GIAA (the paper's "
+                         "population-anchored model). Each writes its "
                          "own summary{_A,_B,_C}.csv so they can be compared.")
     ap.add_argument("--mediators", default=None,
                     help="table1/efficiency: comma-separated mediators, e.g. "
@@ -80,14 +81,16 @@ def main(argv=None) -> int:
     ap.add_argument("--heads", default=None,
                     help="table1: comma-separated heads to run. A partial run writes "
                          "per_unit*_<h>_seed*.csv and leaves the full run's "
-                         "files untouched; merge with merge_table1.py")
+                         "files untouched, then writes its own merged summary")
     ap.add_argument("--folds", default=None,
                     help="efficiency: run only these fold indices, e.g. "
                          "--folds 0,1. Folds are independent, so this is how "
                          "one seed is spread over cores; merge the resulting "
                          "raw*.csv files with src/utils/tools/ingest_runs.py")
     ap.add_argument("--output-dir", default=None)
-    ap.add_argument("--joint-concept-weight", type=float, default=None, help="lam in L=MSE(score)/2 + lam*MSE(concept)/2, as in Koh et al. (2020). Default 1.0.")
+    ap.add_argument("--joint-concept-weight", type=float, default=None,
+                    help="lambda in L=MSE(score) + lambda*MSE(concept), "
+                         "as in Koh et al. (2020). Default 1.0.")
     args = ap.parse_args(argv)
 
     cfg = Config()
@@ -96,6 +99,10 @@ def main(argv=None) -> int:
     if args.output_dir:
         cfg.output_dir = Path(args.output_dir)
     cfg.backbone = args.backbone
+    if args.stage2 is not None:
+        # Set this before ``build`` so the run's config.json records the same
+        # variant that is passed to the experiment.
+        cfg.stage2_variant = args.stage2
     if args.joint_concept_weight is not None:
         cfg.joint_concept_weight = args.joint_concept_weight
 
@@ -144,6 +151,7 @@ def main(argv=None) -> int:
     # --every experiment--
     if args.experiment == "table1":
         from src.experiments import table1
+        cfg.n_train = int(args.n_train.split(",")[-1])
         heads = args.heads.split(",") if args.heads else None
         meds = args.mediators.split(",") if args.mediators else None
         if args.seed is not None:
@@ -152,6 +160,9 @@ def main(argv=None) -> int:
         elif heads is not None or meds is not None:
             for s in table1.SEEDS:
                 table1.run_one_seed(cfg, pipe, s, args.stage2, heads, meds)
+            table1.merge_partial_runs(
+                cfg, heads or table1.HEADS, meds or table1.MEDIATORS,
+                args.stage2)
         else:
             table1.run(cfg, pipe, ds, variant=args.stage2)
     elif args.experiment == "backbone":
@@ -172,14 +183,6 @@ def main(argv=None) -> int:
     elif args.experiment == "formulas":
         from src.experiments import formulas
         formulas.run(
-            cfg, pipe, variant=args.stage2 or "C",
-            n_train=int(args.n_train.split(",")[-1]),
-            mediator=(args.mediators.split(",")[0]
-                      if args.mediators else "emotion"),
-            seed=int(str(args.seed).split(",")[0]) if args.seed else 0)
-    elif args.experiment == "formula_weights":
-        from src.experiments import formula_weights
-        formula_weights.run(
             cfg, pipe, variant=args.stage2 or "C",
             n_train=int(args.n_train.split(",")[-1]),
             mediator=(args.mediators.split(",")[0]

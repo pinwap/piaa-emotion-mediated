@@ -185,7 +185,9 @@ class _PopAnchoredRidge:
 
     def effective_dof(self):
         from src.utils.metrics import effective_dof
-        return effective_dof(self._Z_train, self._alpha)
+        return effective_dof(
+            self._Z_train, self._alpha, already_standardized=True
+        )
 
 
 class Pipeline:
@@ -357,11 +359,11 @@ class Pipeline:
         med   a fitted Mediator (frozen; transforms X_train/X_eval)
         kind  "ridge", "lasso", "elastic" or "mlp"
 
-        A candidate is a penalty for the linear heads and an (lr, weight
-        decay) pair for the MLP. Both are hashable and both are scored by
-        this one loop, so the MLP goes through the reviewer's protocol by the
-        same code that carries every other condition through it -- there is
-        no separate MLP selection path that could drift.
+        A candidate is a penalty for the linear heads and an (lr, epochs)
+        pair for the MLP. Both are hashable and both are scored by this one
+        loop, so the MLP goes through the same validation protocol as every
+        other condition. The reported configuration supplies only one epoch
+        budget (500), so its effective search axis is the learning rate.
         """
         cfg = self.cfg
         is_alpha = kind in ALPHA_HEADS
@@ -450,7 +452,7 @@ class Pipeline:
             fold, dom, feats, seed=seed, want=want)
         n = n_train or cfg.n_train
 
-        print(f"  [Fold {fold.index} | {dom}] -> [1/3] Fitting Population Heads & Anchors...", flush=True)
+        print(f"[fold {fold.index}/{dom}] fitting shared components", flush=True)
         # GIAA head. Always fit: it is the population baseline row and
         # also the y_pop that variants A and C are built on.
         # shared component -> hyperparameter from the val group
@@ -481,7 +483,8 @@ class Pipeline:
                     anchors[mname] = self.pop_anchor(
                         meds[mname], Xg, yg, Xv, yv, mediator_name=mname)
 
-        print(f"  [Fold {fold.index} | {dom}] -> [2/3] Tuning Hyperparameters on Validation Group ({len(fold.val_users)} users)...", flush=True)
+        print(f"[fold {fold.index}/{dom}] selecting on "
+              f"{len(fold.val_users)} validation users", flush=True)
         # freeze one personal-head hyperparameter per (mediator, head)
         frozen = {}
         for mname in mediators:
@@ -490,7 +493,8 @@ class Pipeline:
                     fold, dom, feats, meds[mname], h, n, variant,
                     anchors.get(mname), pop_ridge, mediator_name=mname)
 
-        print(f"  [Fold {fold.index} | {dom}] -> [3/3] Evaluating Personalized Models for {len(fold.test_users)} Test Users...", flush=True)
+        print(f"[fold {fold.index}/{dom}] evaluating "
+              f"{len(fold.test_users)} test users", flush=True)
         rows = []
         # what the frozen hyperparameter produced once it met a real user:
         # epochs run, support size, and how much of the head survived. Kept
@@ -499,7 +503,8 @@ class Pipeline:
         diag: dict = {}
         for u_idx, unit in enumerate(self.iter_units(fold, dom, feats, n_train=n_train), 1):
             if u_idx % 10 == 0 or u_idx == len(fold.test_users):
-                print(f"    [Fold {fold.index} | {dom}] Test User {u_idx}/{len(fold.test_users)} evaluated", flush=True)
+                print(f"[fold {fold.index}/{dom}] users "
+                      f"{u_idx}/{len(fold.test_users)}", flush=True)
             base = dict(fold=unit.fold, domain=unit.domain,
                         user_id=unit.user_id)
 
@@ -690,6 +695,6 @@ def _eval_fold_domain_worker(pipe: Pipeline, fold_index: int, dom: str,
     res, sel = pipe._eval_fold_domain(
         fold_index, dom, mediators, heads, n_train,
         include_population, include_gt_upper_bound, seed, variant)
-    print(f"  --> [Parallel Worker] Fold {fold_index} ({dom}) completed successfully "
-          f"({len(res)} rows, {len(sel)} selection rows)", flush=True)
+    print(f"[fold {fold_index}/{dom}] complete: {len(res)} result rows, "
+          f"{len(sel)} selection rows", flush=True)
     return res, sel

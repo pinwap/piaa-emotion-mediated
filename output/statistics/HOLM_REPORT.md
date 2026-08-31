@@ -4,10 +4,11 @@
 
 This audit covers the current main performance table, the anchored-versus-
 unanchored table, the five-backbone table, the efficiency results, the
-faithfulness results, the weight-alignment table, the MLP architecture
-ablation, and the distribution-valued mediator table. Stage-1 emotion
-accuracy, emotion importance, and the regulariser ablation are descriptive and
-contain no hypothesis tests.
+faithfulness results, and the weight-alignment table. MLP-architecture and
+distribution-valued contrasts are also retained in the CSV as an audit trail,
+but their final supplementary tables are descriptive and carry no markers.
+Stage-1 emotion accuracy, emotion importance, and the regulariser ablation are
+descriptive.
 
 ## Statistical unit
 
@@ -64,13 +65,9 @@ The full definitions, including every contrast and input file, are listed in
   Swapped-image contrast is also significant in both metrics; adding it to the
   family changes no existing decision.
 - All weight-alignment tests remain significant.
-- In the MLP architecture table, the joint lambda=1 differences from the
-  sequential MLP no longer survive correction for Artwork SROCC or Fashion
-  SROCC. All lambda=0.1 differences remain significant; lambda=10 remains
-  indistinguishable from sequential.
-- The distribution-table significance decisions do not change. The replacement
-  LaTeX reports daggers from the Holm-adjusted decisions; exact adjusted
-  p-values are retained in the audit CSV.
+- MLP-architecture and distribution contrasts are retained for auditability,
+  but the final supplementary tables report them descriptively and do not
+  carry significance markers.
 
 ## Required presentation corrections
 
@@ -89,7 +86,7 @@ The full definitions, including every contrast and input file, are listed in
 
 ## Output files
 
-- `holm_corrected.csv`: all 292 tests with raw and adjusted p-values.
+- `holm_corrected.csv`: all 300 tests with raw and adjusted p-values.
 - `holm_family_definitions.csv`: family definitions and sources.
 - `holm_family_summary.csv`: one row per family.
 - `holm_dagger_changes.csv`: tests that were significant at raw p < .05 but not

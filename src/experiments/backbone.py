@@ -1,18 +1,8 @@
-"""Does the emotion mediator still help as the image backbone gets stronger?
+"""Compare Population, Direct, and Hybrid across visual backbones.
 
-Population, Direct, and Hybrid on 5 backbones, 100 ratings/user, with the
-same users/images so we
-can use a paired test. Fine-tuned backbones must load per-fold features
-(see modeling/backbones.py) or this leaks.
-
-*** common image set ***
-The backbones do not all cover the same images: the CLIP-ft and Qwen-4B
-extractions are missing 36 landscape images that frozen CLIP and Qwen-8B
-have. Left alone that is 387 units for two backbones and 386 for the other
-two, with 16 landscape units drawing different support/eval images -- so a
-difference between two rows of this table would be partly a difference in
-which images were scored. Every backbone is therefore restricted to the
-images all of them share, which is what makes the comparison paired.
+All backbone artifacts must cover the same 6,526 stimulus IDs. Fine-tuned
+CLIP features are loaded from the fold-specific files defined in
+``modeling/backbones.py``.
 
 Output: output/backbone/per_unit.csv, summary.csv
 """
@@ -27,16 +17,26 @@ from src.utils.results_db import record
 
 
 def common_stimuli(cfg, backbone_names: list[str]) -> set[str]:
-    """Stimulus ids covered by every backbone, in every fold."""
+    """Validate identical stimulus coverage and return the shared ID set."""
     from src.modeling.backbones import get_backbone
 
-    shared: set[str] | None = None
+    reference: set[str] | None = None
+    reference_name = ""
     for name in backbone_names:
         bb = get_backbone(name, cfg.features_dir)
         for k in range(cfg.n_folds):
             got = set(bb.features_for_fold(k))
-            shared = got if shared is None else (shared & got)
-    return shared or set()
+            current_name = f"{name}/fold{k}"
+            if reference is None:
+                reference, reference_name = got, current_name
+            elif got != reference:
+                raise ValueError(
+                    "backbone stimulus coverage differs: "
+                    f"{current_name} has {len(got)} IDs, {reference_name} has "
+                    f"{len(reference)} (missing={len(reference - got)}, "
+                    f"extra={len(got - reference)})"
+                )
+    return reference or set()
 
 
 def run(cfg, backbone_names: list[str], variant: str | None = None,
@@ -50,7 +50,7 @@ def run(cfg, backbone_names: list[str], variant: str | None = None,
           ("" if heads == ["ridge"] else "_" + "".join(h[0] for h in heads))
 
     shared = common_stimuli(cfg, backbone_names)
-    print(f"[backbone] common image set across {backbone_names}: {len(shared)}")
+    print(f"[backbone] validated {len(shared)} stimulus IDs across all backbones")
 
     frames = []
     for name in backbone_names:
@@ -68,15 +68,15 @@ def run(cfg, backbone_names: list[str], variant: str | None = None,
         # database requires the column
         df["seed"] = 0
         frames.append(df)
-        record(df, "backbone", backbone=name, variant=variant,
+        record(df, "backbone", db_path=cfg.output_dir / "raw_all.csv",
+               backbone=name, variant=variant,
                n_train=cfg.n_train)
     allf = pd.concat(frames, ignore_index=True)
     allf.to_csv(out_dir / f"per_unit{tag}.csv", index=False)
 
     summary = summarize(allf, backbone_names)
     summary.to_csv(out_dir / f"summary{tag}.csv", index=False)
-    # the full frame is wide; print what answers "does personalization beat
-    # the population model on this backbone", read the csv for the rest
+    # Print the primary backbone comparisons; the CSV retains every column.
     cols = ["label", "head", "n_srocc", "pop_srocc_mean",
             "direct_srocc_mean", "hybrid_srocc_mean",
             "direct_beats_pop_srocc", "direct_sig_vs_pop_srocc",
@@ -104,8 +104,8 @@ def summarize(df: pd.DataFrame, names: list[str]) -> pd.DataFrame:
         pop = d[d.mediator == "population"].set_index(idx)
         r = dict(backbone=name, label=backbone_label(name), head=head)
 
-        # the comparison the reviewer asks for first: is either personalized model
-        # actually ahead of the no-personalization baseline on this backbone?
+        # Compare each personalized model with its backbone-matched population
+        # baseline.
         for m in ("srocc", "plcc"):
             if pop.empty:
                 continue

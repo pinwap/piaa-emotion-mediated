@@ -27,14 +27,14 @@ class Config:
     figures_dir: Path = PROJECT_ROOT / "paper" / "figures"
 
     # evaluation protocol
-    first_session_only: bool = True #
+    first_session_only: bool = True
     n_folds: int = 5
     n_eval: int = 50        # eval images per user, fixed across n_train
     n_train: int = 100      # ratings per user used to fit the head
     split_seed: int = 42    # per-user split seed (used as seed + user_id)
     min_test: int = 20      # skip a user if fewer eval images remain
 
-    backbone: str = "qwen8b"  #"qwen3-vl-4b", "qwen3-vl-8b"
+    backbone: str = "qwen8b"
     n_jobs: int = -1        # CPU workers (-1 = all available cores, 1 = serial)
 
     # ridge head. The grid runs to 1e6, well past the point where a 7- or
@@ -63,21 +63,9 @@ class Config:
     #   C      fit the head on the residual y - y_pop
     stage2_variant: str = "C"
 
-    # Which mediators the variant applies to. The reviewer instruction is to
-    # apply it to every mediator, Random and Shuffled included: if only Hybrid
-    # (or only Hybrid/Direct/PCA) carried the population prior, any edge those
-    # rows show would be a fact about who got the prior, not about the
-    # mediator's own content. An earlier version of this list excluded Random
-    # and Shuffled on the reasoning that a content-free control "shouldn't
-    # benefit" from GIAA -- that reasoning was wrong: withholding the anchor
-    # from them is itself the confound the paper is trying to avoid, so every
-    # mediator gets the same treatment and the comparison stays about content.
-    # Every mediator that can be a row in a variant table has to be listed,
-    # including the distribution-valued Stage-1s and the Stage-1 capacity
-    # variants. Leaving one out does not turn its anchor off cleanly -- it
-    # silently runs that row *unanchored* while the rows next to it are
-    # anchored, so a column headed "anchor C" would be comparing two
-    # different methods.
+    # Apply the selected Stage-2 variant to every reported mediator, including
+    # the content-free and distribution-valued controls. Omitting a mediator
+    # here silently falls back to an unanchored fit for that row.
     stage2_variant_mediators: tuple = ("identity", "pca", "emotion",
                                        "random", "shuffled",
                                        "emotion_sd", "emotion_hist",
@@ -87,21 +75,14 @@ class Config:
     # --- the MLP series --------------------------------------------------
     # One hidden layer, the same width for the extractor (Stage-1, features
     # -> 7 concepts) and the predictor (Stage-2, 7 concepts -> 1 score).
-    # 128 and 256 were both offered; 128 is what we run, and the paper says so.
+    # The reported experiments use a width of 128.
     mlp_hidden: int = 128
 
-    # Fixed epoch budget, fixed in advance rather than tuned. early_stopping
-    # is off, and tol=0 with n_iter_no_change=mlp_max_iter is set at
-    # construction so the budget is actually spent: max_iter on its own does
-    # not guarantee it, because sklearn also halts on a training-loss plateau,
-    # and a row that quietly stopped at epoch 80 while its neighbour ran 500
-    # is not the controlled comparison this table is for.
+    # Fixed epoch budget. Early stopping is disabled at construction so every
+    # MLP condition receives the same number of optimization steps.
     mlp_max_iter: int = 500
 
-    # Weight decay, fixed at zero and not tuned. The MLP series is specified
-    # by its architecture and its step size; adding a second searched axis
-    # would make "the MLP row" a different comparison from the one that was
-    # asked for.
+    # Weight decay is fixed at zero rather than selected.
     mlp_alpha: float = 0.0
 
     # Learning rate is selected on the validation group, by the same
@@ -110,38 +91,13 @@ class Config:
     # winner. Ascending, so the tie-break toward the smallest step has a
     # well-defined direction.
     #
-    # Wider than the five values docs/MLP_REBUILD_GUIDE.md fixes (1e-4..1e-2),
-    # and deliberately so: on that grid the selector ran out of room at *both*
-    # ends -- the Stage-1 extractors and the GIAA head took the largest rate on
-    # offer, every personal head took the smallest -- and a winner sitting on
-    # the edge of a grid reports where the search stopped, not where the
-    # optimum is. Half-decade steps from 1e-4 to 1e1 leave the selector
-    # somewhere to land. The `edge` column of selection*.csv says whether it
-    # did.
-    # Two axes, both selected on the validation user group. The rate
-    # sets how big a step is, the budget sets how many steps are taken.
-    # Before the budget was selectable the rate had to stand in for it,
-    # which is why the old grid ran to 1e1 and why the personal head
-    # still ended up pinned at the bottom of it. With the budget on its
-    # own axis the rate only has to cover the range the shared
-    # components actually select in (1e-3 to 3e-2 in all 45 of their
-    # selections), and 1e-4 is kept below that as a floor so the
-    # at_grid_edge flag stays able to report a problem.
-    # THE GRID THE REPORTED RESULTS WERE PRODUCED WITH. Eleven half-decade
-    # steps, 1e-4 to 1e1, exactly as recorded in the run's own snapshot at
-    # output/thundering_lobster_modal_all_runs/lr/*/config.json. Do not
-    # narrow this without re-running: every MLP row in Table 1 (and so
-    # Tables 2 and 3, which read the same output/raw_all_final.csv) was
-    # selected over these eleven values.
+    # Exact learning-rate grid used by the frozen MLP results. The selected
+    # value is chosen on the validation-user group and recorded in each run's
+    # selection log.
     mlp_lr_grid: tuple = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2,
                           3e-2, 1e-1, 3e-1, 1e0, 3e0, 1e1)
-    # Epoch budget, FIXED rather than selected. A single value here makes
-    # mlp_pair_grid degenerate to the learning rate alone at a constant
-    # cfg.mlp_max_iter budget, which is the protocol the reported results
-    # used: rate chosen on the validation user group, budget stated in
-    # advance. A multi-value grid turns the epoch budget into a second
-    # selected axis -- a different (and un-run) experiment, so it stays a
-    # deliberate one-line edit rather than the default.
+    # A single value keeps the epoch budget fixed while the learning rate is
+    # selected on validation users.
     mlp_epoch_grid: tuple = (500,)
 
     # Joint Stage-1: L = MSE(score) + lam * MSE(concepts), as in Koh et al.
