@@ -1,0 +1,707 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+\usepackage[review,applications]{wacv}
+\input{preamble}
+\usepackage{dblfloatfix}
+\usepackage[section]{placeins}
+
+\definecolor{wacvblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=wacvblue]{hyperref}
+\def\wacvPaperID{2267}
+\def\confName{WACV}
+\def\confYear{2027}
+
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.95}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.70}
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\dblfloatpagefraction}{0.70}
+\setcounter{topnumber}{4}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{6}
+\setcounter{dbltopnumber}{3}
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+\setlength{\dblfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\dbltextfloatsep}{8pt plus 2pt minus 2pt}
+
+\title{Supplementary Material: Can Aesthetic Emotions Explain Individual
+Taste?\\Investigating an Interpretable Route to Personalized Image Aesthetics}
+\author{Paper ID 2267}
+
+\begin{document}
+\maketitle
+
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\theequation}{S\arabic{equation}}
+\setcounter{section}{0}
+\setcounter{table}{0}
+\setcounter{figure}{0}
+\setcounter{equation}{0}
+
+This document gives the experimental details needed to audit the main paper,
+reports the extended model and mediator analyses, and provides unit-level
+faithfulness diagnostics. Unless stated otherwise, results use three seeds,
+which are averaged within each user--domain unit before summarization or
+inference.
+
+\section{Experimental and Statistical Details}
+\label{sec:supp_exp_stat}
+
+\subsection{Dataset Encoding and First-Occurrence Filter}
+
+XPASS-Vis~\cite{hayashi2026xpassvis} contains 6,526 images, 129 participants,
+and 87,836 user--image interactions across three visual domains
+(\cref{tab:domain_counts}). The released file encodes aesthetic scores as
+0--6 and emotion responses as 0--4. The loader shifts the emotion items to
+1--5; leaving the aesthetic score on its 0--6 file coding has no effect on
+SROCC or PLCC because both are invariant to a constant shift.
+
+\begin{table}[!htbp]
+\centering
+\caption{XPASS-Vis images and rating interactions by domain.}
+\label{tab:domain_counts}
+\begin{tabular}{lrr}
+\toprule
+Domain & Images & Interactions \\
+\midrule
+Artwork   & 2{,}345 & 31{,}543 \\
+Fashion   & 2{,}082 & 28{,}154 \\
+Landscape & 2{,}099 & 28{,}139 \\
+\midrule
+Total     & 6{,}526 & 87{,}836 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Repeated ratings are excluded from all fitting and evaluation. For each
+repeated user--image pair, we retain the first occurrence in the released file
+and reserve the second for the test--retest reference. This removes 4,509 rows
+and leaves 83,327 interactions. The deterministic filter precedes all
+split-specific processing.
+
+\subsection{Leak-Free Split and Model Selection}
+
+The 129 participants are partitioned into 10 fixed groups. Each of five folds
+uses seven groups for training, one for validation, and two for testing; every
+participant is a test user in exactly one fold. The exact user counts are shown
+in \cref{tab:fold_counts}. Train, validation, and test participants are
+disjoint, and images associated with these groups do not cross split
+boundaries. Stage~1 and the population model are fitted only on training-group
+images.
+
+\begin{table}[!htbp]
+\centering
+\caption{Fixed participant split used in every experiment.}
+\label{tab:fold_counts}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{crrrr}
+\toprule
+Fold & Train & Validation & Test & Stage-1 images \\
+\midrule
+0 & 97 &  6 & 26 & 4{,}561 \\
+1 & 95 & 12 & 22 & 4{,}564 \\
+2 & 92 & 14 & 23 & 4{,}563 \\
+3 & 83 & 16 & 30 & 4{,}561 \\
+4 & 84 & 17 & 28 & 4{,}582 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Within each user and domain, a deterministic seed ($42+\text{user\_id}$)
+first holds out 50 evaluation images. Support sets of
+$N\in\{10,25,50,100\}$ are then taken from the remainder, so every rating
+budget is evaluated on the same images. A candidate personal-head
+hyperparameter is fitted separately on each validation user's support set and
+scored by SROCC on that user's disjoint 50-image validation evaluation set.
+Scores are averaged across validation-user units; one candidate is frozen for
+the fold--domain--condition--budget combination and applied to all test users.
+Shared components are selected by validation-group image-level MSE.
+
+Ridge uses 17 penalties from $10^{-2}$ to $10^{6}$
+($\operatorname{logspace}(-2,6,17)$). MLPs have one 128-unit ReLU hidden layer,
+Adam optimization, MSE loss, no weight decay, and a fixed 500-epoch budget.
+Their learning rate is selected from
+$\{10^{-4},3\!\times\!10^{-4},\ldots,3,10\}$. Early stopping is disabled:
+at $N=10$, an internal hold-out would contain only one or two observations.
+
+\subsection{Inference and Holm--Bonferroni Families}
+
+SROCC and PLCC are computed on held-out images for each user--domain unit.
+Domain-specific comparisons use 129 paired participants and two-sided
+Wilcoxon signed-rank tests. For an Average column, the three domains from one
+participant are correlated; therefore the mean uncertainty, confidence
+interval, and two-sided test use 10,000 participant-cluster bootstrap samples
+(seed 0), resampling 129 participants and retaining all three domains as a
+block. Empirical tail probabilities are estimated from those 10,000 samples;
+a zero tail count is not interpreted as an exact zero and is reported as
+$p<.001$. Weight-alignment tests are one-sided because the tested alternative
+is directional and positive.
+
+Holm--Bonferroni correction is applied separately within each family in
+\cref{tab:holm_families}. SROCC and PLCC are always separate families, and an
+Average family is never combined with a domain-specific family. Tables not
+listed there are descriptive and carry no significance markers.
+The family definitions were fixed before the final correction audit was run;
+they were not registered in advance.
+
+\begin{table*}[!tbp]
+\centering
+\caption{Multiple-comparison families used in the final audit. ``Domain'' comprises
+Artwork, Fashion, Landscape, and a separate clustered Average family.}
+\label{tab:holm_families}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{p{2.2cm}p{2.6cm}p{6.3cm}p{2.3cm}r}
+\toprule
+Result block & Family defined by & Reference contrast(s) & Test & Size \\
+\midrule
+Main-paper Table 1 & domain $\times$ metric & Hybrid vs Population, Direct, Random, PCA & paired / cluster & 4 \\
+Main-paper Table 2 & Average $\times$ metric & Hybrid vs four mediators, both anchor settings & cluster & 8 \\
+Backbone Table S5 & domain $\times$ metric & Hybrid vs Population across five backbones & paired / cluster & 5 \\
+Main-paper Fig.~2 & domain $\times$ metric & Hybrid and Direct vs Population at four budgets & paired / cluster & 8 \\
+Faithfulness tables & domain $\times$ metric & formula (6), anchored ablation (3), image (4) & paired / cluster & 13 \\
+Weight alignment Table S17 & domain $\times$ coefficient type & alignment greater than zero & one-sided / cluster & 1 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+For traceability, the released statistics CSV also retains 24 exploratory
+MLP contrasts and 12 exploratory distribution-target contrasts. Their tables
+below are descriptive: these retained calculations do not create manuscript
+significance markers or support inferential claims.
+
+\subsection{Reproducibility and Released Artifacts}
+
+BLAS operations are pinned to one thread before NumPy is imported. Random
+projections, permutations, and initializations use fixed seeds; validation
+ties within a relative tolerance of $10^{-9}$ are resolved by a deterministic
+conservative rule. The released \texttt{uv.lock} is the executable reference
+environment. The final audit used Python 3.13.5, NumPy 2.5.2, pandas 3.0.5,
+SciPy 1.18.0, scikit-learn 1.9.0, and Matplotlib 3.11.1. Training runs were
+produced on more than one platform; all reported values are retained
+as per-unit outputs, and the locked environment regenerates the downstream
+statistics and presentation artifacts from those outputs.
+
+The emotion, PCA, and identity ridge pipelines are deterministic for a fixed
+split and support set. Seed averaging therefore affects the stochastic Random
+and Shuffled controls and the MLP conditions, but does not create three
+independent versions of each deterministic ridge result. Each participant has
+one deterministic support-set draw, so the reported uncertainty is conditional
+on that draw; it does not quantify variation under new support images. Shared
+fold-level components are likewise treated as fixed by the reported
+participant-level inference.
+
+The release includes the fixed split files and eleven compact audit-facing
+CSV files:
+\texttt{raw\_all\_final.csv} (seed-level model results),
+\texttt{formula\_units\_final.csv} and
+\texttt{formula\_images\_final.csv} (formula and image-level diagnostics),
+\texttt{stage1\_accuracy.csv},
+\texttt{statistics/holm\_corrected.csv}. The set also contains
+\texttt{upper\_bound\_units\_final.csv},
+\texttt{emotion\_importance\_units\_final.csv},
+\texttt{mlp\_architecture\_units\_final.csv},
+\texttt{reference\_bounds\_final.csv}, and
+\texttt{regularizer\_units\_final.csv}, together with the 387-row
+\texttt{test\_retest\_units.csv} used for the within-unit reference.
+Dataset access requirements, expected schemas, and feature-extraction commands
+are documented in the anonymous code snapshot:
+\url{https://anonymous.4open.science/r/piaa-emotion-mediated-anonymous-DF01/}.
+
+The frozen per-unit outputs are the numerical source of the release. The locked
+environment regenerates downstream statistics, tables, and figures, and
+\texttt{reproduce.py} compares the regenerated Holm table row-for-row with the
+frozen audit.
+
+\subsection{Reference Quantities}
+
+The ground-truth-emotion (GT) reference replaces Stage~1 predictions with each
+user's reported emotions and fits an unanchored ridge head. Unlike the compared
+model rows, its penalty is selected per user by RidgeCV on that user's support
+set. It is therefore an optimistic diagnostic of perfect emotion observation
+rather than a deployable condition trained under the matched selection rule.
+
+The test--retest reference can be summarized either by pooling all repeated
+pairs or by first computing a correlation within each user--domain unit. The
+pooled .684 SROCC combines 4,509 pairs and is retained only as a dataset-level
+description; it is not on the statistical unit used for the model rows. The
+within-unit .585 SROCC is the comparable reference for Table~1
+(Table~\ref{tab:retest_units}).
+Because each unit contains a median of only 12 repeated images (range 5--12),
+the within-unit correlations are themselves noisy and are provided as a scale
+reference rather than a model comparison.
+
+\begin{table}[!htbp]
+\centering
+\begin{threeparttable}
+\caption{Test--retest correlation under two aggregation rules.}
+\label{tab:retest_units}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{llcccc}
+\toprule
+Metric & Aggregation & Art & Fash. & Land. & Avg. \\
+\midrule
+\multirow{2}{*}{SROCC}
+ & Pooled pairs & .672 & .688 & .695 & .684 \\
+ & Within unit  & .577 & .593 & .584 & .585 \\
+\addlinespace
+\multirow{2}{*}{PLCC}
+ & Pooled pairs & .686 & .691 & .703 & .693 \\
+ & Within unit  & .589 & .595 & .607 & .597 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Pooled rows contain 4,509 repeated pairs. Within-unit rows average 387
+user--domain correlations; the participant-cluster 95\% interval for Average
+SROCC is [.550, .617].
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\section{Extended Architecture and Performance Results}
+
+\subsection{Visual Backbone Robustness}
+
+\begin{table*}[!tbp]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{threeparttable}
+\caption{Population, Direct, and Hybrid ridge models across visual backbones
+and domains.}
+\label{tab:backbone}
+\input{Table_Figure/tab_backbone}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM. Domain columns use 129 participants; Average
+uses the participant-cluster bootstrap over the same 129 participants.
+\item $\dagger$ marks Hybrid above Population after Holm correction within the
+corresponding domain--metric family across five backbones. Direct is descriptive and is
+not included in that family. The best predictive value in each cell block is
+shown in bold.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Same-width Hybrid and PCA mediators across backbones at $N=100$.
+Values are Average SROCC.}
+\label{tab:mediator_backbone}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llccc}
+\toprule
+Setting & Backbone & Hybrid & PCA & Hybrid--PCA (95\% CI) \\
+\midrule
+\multirow{5}{*}{Anchored}
+& CLIP frozen       & $.435$ & $.445$ & $-.010$ $[-.018,-.003]$ \\
+& CLIP-ft (score)   & $.434$ & $.446$ & $-.013$ $[-.021,-.005]$ \\
+& CLIP-ft (emotion) & $.423$ & $.441$ & $-.018$ $[-.025,-.011]$ \\
+& Qwen3-VL 4B       & $.448$ & $.454$ & $-.006$ $[-.014,+.002]$ \\
+& Qwen3-VL 8B       & $.459$ & $.458$ & $+.001$ $[-.006,+.008]$ \\
+\addlinespace
+\multirow{5}{*}{Unanchored}
+& CLIP frozen       & $.419$ & $.377$ & $+.041$ $[+.029,+.053]$ \\
+& CLIP-ft (score)   & $.427$ & $.425$ & $+.002$ $[-.007,+.011]$ \\
+& CLIP-ft (emotion) & $.419$ & $.421$ & $-.002$ $[-.011,+.006]$ \\
+& Qwen3-VL 4B       & $.436$ & $.362$ & $+.073$ $[+.061,+.086]$ \\
+& Qwen3-VL 8B       & $.446$ & $.382$ & $+.063$ $[+.051,+.075]$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Differences and intervals are participant-cluster bootstrap estimates
+over 129 participants. This descriptive scope analysis adds no Holm contrasts.
+On the primary Qwen3-VL 8B backbone, anchored Hybrid and PCA differ by only
+$+.001$ (95\% CI $[-.006,.008]$); this near-equality does not extend to the
+three CLIP variants. Without anchoring, Hybrid is higher on three backbones,
+while the intervals for the two CLIP-ft variants include zero.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\subsection{Linear and Nonlinear Heads}
+\label{sec:supp_joint}
+
+The sequential MLP first fits a shared emotion extractor and freezes it before
+fitting a personal MLP. In the joint variant, the shared extractor is trained
+with
+\begin{equation}
+\mathcal{L}=\operatorname{MSE}(\hat y)+
+\lambda\operatorname{MSE}(\hat{\mathbf e}),
+\qquad \lambda\in\{0.1,1,10\},
+\end{equation}
+where the emotion loss is averaged over seven concepts. Task gradients pass
+through the semantic layer, following the joint concept-bottleneck setup of
+Koh et al.~\cite{pmlr-v119-koh20a}. Joint training is restricted to the shared
+stage; it does not fine-tune a high-capacity extractor separately for each
+user.
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Ridge and sequential MLP heads for each mediator. Qwen3-VL 8B,
+population-anchored, $N=100$.}
+\label{tab:mlp_baseline}
+\footnotesize
+\setlength{\tabcolsep}{3.4pt}
+\input{Table_Figure/tab_mlp_baseline}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM after averaging seeds within units. Average
+SEM uses the participant-cluster bootstrap. This table is descriptive and
+contains no hypothesis tests.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Sequential and joint MLP training for the Hybrid mediator. Qwen3-VL
+8B, population-anchored, $N=100$.}
+\label{tab:mlp}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\input{Table_Figure/tab_s_mlp}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM after averaging seeds within units. Average
+SEM uses the participant-cluster bootstrap. The evaluated MLP variants have
+lower mean SROCC and PLCC than Ridge $\to$ Ridge in every domain. The table is
+descriptive and contains no hypothesis tests.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Descriptive regularizer sensitivity for the personal head. Frozen
+CLIP, unanchored models, $N=100$, and three seeds.}
+\label{tab:regularizer}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\input{Table_Figure/tab_regularizer}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM after averaging the three seeds within each
+user--domain unit. SEM uses the participant-cluster bootstrap over 129
+participants. This table is descriptive and has no significance markers.
+\item Sparse penalties produced a constant prediction in two Lasso--Hybrid
+units and one Elastic-Net--Hybrid unit, so their correlations are undefined
+and excluded from the corresponding mean and bootstrap (valid $n=385$ and
+$386$, respectively). Every other cell contains all 387 units.
+\item All heads were rerun together under the current split, support-set, and
+validation-selection protocol. Hybrid varies by at most .002 SROCC across the
+three regularizers, whereas sparse penalties reduce Direct by .055--.070.
+This supports Ridge as the common head used in the primary experiments.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\subsection{Detailed Rating-Budget Results}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Population, Direct, and Hybrid performance across personal-rating
+budgets with Qwen3-VL 8B and the population anchor.}
+\label{tab:efficiency_full}
+\fontsize{6.1}{7.2}\selectfont
+\setlength{\tabcolsep}{1.2pt}
+\input{Table_Figure/tab_efficiency}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM after averaging the three seeds within each
+unit. Domain SEM uses 129 participants; Average SEM uses the participant-
+cluster bootstrap. This numerical breakdown is descriptive; the inferential
+tests attached to main-paper Fig.~2 use the families in
+\cref{tab:holm_families}.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\section{Mediator-Design Analysis}
+
+\subsection{Stage-1 Emotion Extraction}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Stage-1 emotion extraction accuracy by visual domain.}
+\label{tab:stage1_accuracy}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\input{Table_Figure/tab_emotion_accuracy}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean $\pm$ SEM across the five fold-level estimates in each
+domain; Average summarizes the 15 fold--domain estimates. This shared-stage
+analysis is descriptive and has no user-level hypothesis test.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+Recovery varies substantially by concept: the pooled SROCC is highest for
+Amused, Distasteful, and Impressed (.597--.607) and lowest for Sad (.445).
+This table measures visual recoverability, not downstream importance; the
+next analysis separates associations in users' reported emotions from the
+weights available to the deployable predicted-emotion model.
+
+\subsection{Learned Emotion Weights}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Mean absolute standardized emotion weights ($\pm$ SEM), percentage
+of positive coefficients, and within-setting importance rank.}
+\label{tab:emotion_importance}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\input{Table_Figure/tab_emotion_importance}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Domain columns contain 129 user units. Average magnitude SEM uses a
+participant-cluster bootstrap retaining all three domains; percentages use a
+$10^{-9}$ tolerance for numerical zeros and are averaged across domains.
+\item GT fits a diagnostic ridge head directly to the user's same-session
+reported emotions, with its penalty selected per user by RidgeCV on that
+user's support set. Pred reports the anchored model's total emotion-space
+weight $\mathbf w_{\mathrm{tot}}$. The blocks are descriptive interpretations,
+not a controlled predictive comparison between identical training rules.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+Amused has the largest GT magnitude (.444), whereas Impressed ranks first
+under predicted emotions (.287). These rank changes show why concept
+predictability and personal association should be reported separately. The
+coefficients are descriptive properties of fitted linear heads, not causal
+effects of inducing an emotion.
+
+\subsection{Distribution-Valued Emotion Targets}
+
+The main model predicts the seven population-mean emotion ratings. We also
+tested a 14-dimensional target containing each mean and across-rater standard
+deviation, and a 35-dimensional target containing five rating-bin frequencies
+for each emotion. These variants ask whether disagreement information omitted
+by the mean is useful downstream.
+
+\begin{table}[!htbp]
+\centering
+\begin{threeparttable}
+\caption{Distribution-valued Stage-1 targets with frozen CLIP, a population
+anchor, and a ridge head. Widths are 7 (means), 14 (means and standard
+deviations), and 35 (seven five-bin histograms).}
+\label{tab:distribution}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\input{Table_Figure/tab_distribution}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are pooled mean SROCC $\pm$ participant-cluster bootstrap SEM
+over 129 participants. The table is descriptive.
+\item At $N=100$, the 14-dimensional and 7-dimensional targets are nearly
+identical (.434 and .435). The histogram target is highest from $N=25$
+onward, but uses five times the width of the named bottleneck. We therefore
+retain the seven-dimensional mean target for the primary study.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\section{Faithfulness Diagnostics}
+
+All diagnostics operate on the stored formulas and evaluation-image records;
+they do not refit any model. Formula swaps use five fixed-seed peers sampled
+without replacement within the same fold and domain; their uncertainty is
+therefore conditional on that fixed peer assignment. Image swaps use every
+one of the 49 nonzero cyclic shifts of a unit's 50 evaluation images. The
+``no-image'' condition supplies the user's support-set mean emotion vector,
+so it retains no image-specific emotion information. This is a baseline
+emotion vector rather than setting the seven raw emotion ratings to zero.
+
+The diagnostics use two weight conventions for distinct estimands. Concept
+ablation ranks named concepts by the reported total emotion-space weight
+$\mathbf w_{\mathrm{tot}}=\mathbf w_{\mathrm{pop}}+\boldsymbol\delta_u$.
+Image swap reconstructs the executed anchored predictor,
+$\hat y_i=\hat y_{\mathrm{pop}}(x_i)+\mathbf z_i^\top
+\boldsymbol\delta_u+b_u$, and changes only $\mathbf z_i$. Formula swap instead
+replaces the stored personal coefficient and intercept with five eligible peer
+formulas; it uses the frozen $K=5$ protocol.
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Formula-swap diagnostic. ``Other user'' averages five deterministic
+peer swaps ($K=5$) within the same fold and domain.}
+\label{tab:formula_swap}
+\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\input{Table_Figure/tab_formula_swap}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Domain columns report mean $\pm$ SEM over 129 participants; the Average
+column uses participant-cluster bootstrap SEM over the same 129 participants,
+retaining their three domains as a block.
+\item $\dagger$ marks a Holm-adjusted two-sided difference from Own;
+$\ddagger$ marks Population mean versus Other user. All contrasts are members
+of the joint faithfulness family in \cref{tab:holm_families}.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Concept-ablation diagnostic under the population anchor. One emotion
+is held at its support-set mean according to the magnitude of
+$\mathbf w_{\mathrm{tot}}=\mathbf w_{\mathrm{pop}}+\boldsymbol\delta_u$.}
+\label{tab:concept_ablation}
+\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\input{Table_Figure/tab_concept_ablation}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Domain columns report mean $\pm$ SEM over 129 participants; the Average
+column uses participant-cluster bootstrap SEM. $\dagger$ marks a
+Holm-adjusted two-sided difference from Full in the anchored faithfulness
+family.
+The Bottom-weight SROCC comparison is not detected ($p=.628$), whereas its
+PLCC comparison is detected ($p=.036$).
+\item The raw-feature population prediction remains fixed. Thus
+$\mathbf w_{\mathrm{tot}}$ provides formula-level concept attribution rather
+than a path decomposition of the population branch or a residual-only ablation
+of $\boldsymbol\delta_u$.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\begin{table*}[!tbp]
+\centering
+\begin{threeparttable}
+\caption{Image-swap diagnostic. The fitted formula and target image's
+population prediction are fixed while the emotion input is replaced.}
+\label{tab:image_swap}
+\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\input{Table_Figure/tab_image_swap}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Domain columns report mean $\pm$ SEM over 129 participants; the Average
+column uses participant-cluster bootstrap SEM. Swapped-image results average
+all 49 nonzero cyclic shifts of each unit's 50 evaluation images.
+\item $\dagger$ marks a Holm-adjusted two-sided difference from Correct image
+in the same anchoring condition; $\ddagger$ marks No-image emotion versus
+Swapped image. All contrasts belong to the joint faithfulness family in
+\cref{tab:holm_families}.
+\item For the unanchored swapped-image row, both SEMs are below .001 and
+therefore round to .000 at the table's three-decimal precision.
+The unanchored No-image predictor is constant across a user's evaluation
+images, so SROCC and PLCC are undefined and that row is omitted.
+\item Correct image versus Swapped image tests image specificity. In the
+anchored model, No-image emotion is the image-dependent population prediction
+plus a constant, so its SROCC matches the Population baseline by construction.
+As a post-hoc scale check, covariance-matched Gaussian emotion vectors give
+.385 Average SROCC, essentially the same as the cyclic-swap value of .384.
+Thus the comparison establishes the value of correct image--emotion alignment;
+the extra drop below No-image is not interpreted directionally.
+\end{tablenotes}
+\end{threeparttable}
+\end{table*}
+
+\begin{table}[!htbp]
+\centering
+\begin{threeparttable}
+\caption{Alignment between each fitted total emotion-space weight vector and
+the corresponding user's empirical emotion--rating associations.}
+\label{tab:weight_alignment}
+\small
+\setlength{\tabcolsep}{5pt}
+\input{Table_Figure/tab_weight_alignment}
+\begin{tablenotes}[flushleft]\footnotesize
+\item For each user--domain unit, the seven entries of $\mathbf w_{\mathrm{tot}}$
+are correlated with the seven associations between predicted emotion and raw
+aesthetic rating. Values are mean $\pm$ SEM over 129 participants. The Average
+SEM uses the participant-cluster bootstrap, retaining all three domains per
+participant.
+\item $\dagger$ marks a positive-alignment result under the directional
+one-sided test. Each domain--coefficient-type family contains one contrast, as
+listed in \cref{tab:holm_families}.
+\item Domain intervals use the normal approximation (mean $\pm1.96$ SEM);
+the Average interval is a participant-cluster bootstrap percentile interval.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\paragraph{Peer-formula null.}
+Because $\mathbf w_{\mathrm{tot}}$ contains a population component shared
+within each fold and domain, positive alignment alone does not show how much of
+the association is person-specific. We therefore compare each unit's weights
+with the empirical emotion--rating associations of a fixed peer, obtained by a
+cyclic shift of user order within the same fold and domain. No unit is paired
+with itself.
+
+\begin{table}[!htbp]
+\centering
+\begin{threeparttable}
+\caption{Weight alignment against a peer-association null.}
+\label{tab:weight_alignment_peer}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lccc}
+\toprule
+Weights & Own association & Peer association & Own--peer (95\% CI) \\
+\midrule
+$\mathbf w_{\mathrm{tot}}$ & .525 & .453 & $+.072$ $[+.041,+.102]$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}[flushleft]\footnotesize
+\item Values are mean Spearman correlations over 387 user--domain units. The
+interval uses a participant-cluster bootstrap over the paired own--peer
+difference. This post-hoc scope check is descriptive and is not added to the
+prespecified Holm families in \cref{tab:holm_families}.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsection{Qualitative Example and Failure Case}
+
+Figure~\ref{fig:qualitative} makes the numerical formula concrete. The example
+is the top-ranked candidate produced by the disclosed search in
+\texttt{qualitative\_triple\_search.py}; the rule requires an opposite-sign
+Sad-weight pair with a gap of at least .30, minimizes the pair's maximum
+prediction error on a shared image, and then shows the largest-error third
+user on that image. The figure is illustrative rather than an additional
+hypothesis test; the aggregate diagnostics above carry the statistical claims.
+
+\begin{figure*}[!tbp]
+\centering
+\includegraphics[width=\linewidth]{Table_Figure/fig_qualitative.pdf}
+\caption{\textbf{Qualitative personal-formula example and failure case.}
+All three users rated the same artwork (image 4173). The first row shows the
+Stage-1 emotion vector on its 1--5 scale; these values are standardized before
+entering the personal head. The displayed coefficients are total
+emotion-space weights $\mathbf w_{\mathrm{tot}}$. The predictions are those
+of the complete anchored model, including the raw-feature population
+prediction and personal intercept. Users 106 and 129 have opposite-sign Sad
+weights ($w_{\mathrm{sad}}=+.191$ and $-.230$) and predictions within .03 of
+their recorded scores. User 92 has the largest error among the remaining users
+who rated the image ($y=2.0$, $\hat y=3.38$) and is shown as a failure case.}
+\label{fig:qualitative}
+\end{figure*}
+
+\section{Scope of the Evidence}
+
+The seven personal coefficients describe how an individual's prediction
+departs from a population branch fitted on raw visual features; they do not
+decompose that shared branch. The computational diagnostics provide evidence
+for owner, weight, and image specificity within the evaluated model. No
+participant inspected or edited a formula in this study, so usability and
+successful human correction remain questions for a user study. Comparisons with published ICI and MIR
+numbers are descriptive only because their features and protocols differ; the
+content-free Random control also reaches a similar range.
+
+{
+\small
+\bibliographystyle{ieeenat_fullname}
+\bibliography{main}
+}
+
+\end{document}

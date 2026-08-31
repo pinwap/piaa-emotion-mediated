@@ -1,0 +1,17 @@
+\begin{tabular}{llccc}
+\toprule
+Setting & Backbone & Hybrid & PCA & Hybrid--PCA (95\% CI) \\
+\midrule
+\multirow{5}{*}{Anchored} & CLIP frozen       & $.435$ & $.445$ & $-.010$ $[-.018,-.003]$ \\
+& CLIP-ft (score)   & $.434$ & $.446$ & $-.013$ $[-.021,-.005]$ \\
+& CLIP-ft (emotion) & $.423$ & $.441$ & $-.018$ $[-.025,-.011]$ \\
+& Qwen3-VL 4B       & $.448$ & $.454$ & $-.006$ $[-.014,+.002]$ \\
+& Qwen3-VL 8B       & $.459$ & $.458$ & $+.001$ $[-.006,+.008]$ \\
+\addlinespace
+\multirow{5}{*}{Unanchored} & CLIP frozen       & $.419$ & $.377$ & $+.041$ $[+.029,+.053]$ \\
+& CLIP-ft (score)   & $.427$ & $.425$ & $+.002$ $[-.007,+.011]$ \\
+& CLIP-ft (emotion) & $.419$ & $.421$ & $-.002$ $[-.011,+.006]$ \\
+& Qwen3-VL 4B       & $.436$ & $.362$ & $+.073$ $[+.061,+.086]$ \\
+& Qwen3-VL 8B       & $.446$ & $.382$ & $+.063$ $[+.051,+.075]$ \\
+\bottomrule
+\end{tabular}
