@@ -73,22 +73,24 @@ Total      & 6{,}526 & 87{,}836 \\
 
 Approximately 5\% of ratings (4,509 of 87,836) are repeat evaluations where a participant rated the same image in separate sessions. 
 We use only the first-occurring rating in the
-released file and reserve the second occurrence exclusively for test--retest reliability (\cref{tab:retest_units}).
+released file and reserve the second occurrence exclusively for test--retest reliability (\cref{tab:retest_units}). 
 Here, ``first'' means first in the occurrence order preserved by the released file;
 reversing the pair would not change the symmetric test--retest correlation. This leaves 83,327 ratings for all experiments.
 The filtering rule is deterministic and is applied before any split-specific data are built.
 % ------------------------------------
 \subsection{Leak-Free Split and Model Selection}
 The 129 participants are partitioned into 10 fixed groups. Each of five folds
-uses seven groups for training, one for validation, and two for testing; every
-participant is a test user in exactly one fold. 
-Train, validation, and test participants are disjoint, and images associated with these groups do not cross split boundaries (\cref{tab:fold_counts}). Stage~1 and the population model are fitted only on training-group images.
+uses seven groups for training, one for validation, and two for testing. Train,
+validation, and test participants are disjoint, and images associated with
+these groups do not cross split boundaries (\cref{tab:fold_counts}). Stage~1
+and the population model are fitted only on training-group images.
+
 
 \begin{table}[t]
 \centering
+\small
 \caption{Fixed participant split used in every experiment.}
 \label{tab:fold_counts}
-\small
 \begin{tabular}{crrrr}
 \toprule
 Fold & Train & Validation & Test & Stage-1 images \\
@@ -140,18 +142,18 @@ they were not registered in advance.
 \caption{Multiple-comparison families used in the final audit. ``Domain'' comprises
 Artwork, Fashion, Landscape, and a separate clustered Average family.}
 \label{tab:holm_families}
-\small
+% \small
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{p{2.2cm}p{2.6cm}p{6.3cm}p{2.3cm}r}
 \toprule
 Result block & Family defined by & Reference contrast(s) & Test & Size \\
 \midrule
-Main Table 1 & domain $\times$ metric & Hybrid vs Population, Direct, Random, PCA & paired / cluster & 4 \\
-Anchor Table~2 & Average $\times$ metric & Hybrid vs four mediators, both anchor settings & cluster & 8 \\
+Main Tab.~1 & domain $\times$ metric & Hybrid vs Population, Direct, Random, PCA & paired / cluster & 4 \\
+Anchor Tab.~2 & Average $\times$ metric & Hybrid vs four mediators, both anchor settings & cluster & 8 \\
 Backbone \cref{tab:backbone} & domain $\times$ metric & Hybrid vs Population across five backbones & paired / cluster & 5 \\
 Efficiency Fig.~2 & domain $\times$ metric & Hybrid and Direct vs Population at four budgets & paired / cluster & 8 \\
-Faithfulness Fig.~3 & domain $\times$ metric & formula swap (6), concept ablation (3), image swap (4) & paired / cluster & 13 \\
-Weight alignment Table~3 & domain $\times$ coefficient type & alignment greater than zero & one-sided / cluster & 1 \\
+Faithfulness Fig.~3 & domain $\times$ metric & formula (6), anchored ablation (3), image (4) & paired / cluster & 13 \\
+Weight alignment Tab.~3 & domain $\times$ coefficient type & alignment greater than zero & one-sided / cluster & 1 \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -212,6 +214,7 @@ remaining ratings and the features must be obtained from the dataset authors.
 Their expected schemas and extraction commands are documented in the code
 package accompanying this supplementary material.
 
+
 The frozen per-unit outputs are the numerical source of the release. The locked
 environment regenerates downstream statistics, tables, and figures, and
 \texttt{reproduce.py} compares the regenerated Holm table row-for-row with the
@@ -239,8 +242,8 @@ reference rather than a model comparison.
 \begin{threeparttable}
 \caption{Test--retest correlation under two aggregation rules.}
 \label{tab:retest_units}
-\scriptsize
-\setlength{\tabcolsep}{2pt}
+% \scriptsize
+% \setlength{\tabcolsep}{2pt}
 \begin{tabular}{llcccc}
 \toprule
 Metric & Aggregation & Art & Fash. & Land. & Avg. \\
@@ -261,7 +264,7 @@ user--domain correlations.
 \end{threeparttable}
 \end{table}
 
-% ========================2===========================
+% ========================2==========================
 \FloatBarrier
 \section{Extended Model Architecture and Performance}
 \label{sec:supp_arch_perf}
@@ -295,25 +298,23 @@ and domains.}
 Values are Average SROCC.}
 \label{tab:mediator_backbone}
 \small
-\begin{tabular}{lccc}
+\begin{tabular}{llccc}
     \toprule
-    Backbone & Hybrid & PCA & Hybrid--PCA (95\% CI) \\
+    Setting & Backbone & Hybrid & PCA & Hybrid--PCA (95\% CI) \\
     \midrule
-    \multicolumn{4}{l}{\textit{Anchored}}\\
-    \addlinespace[2pt]
-    CLIP frozen       & $.435$ & $.445$ & $-.010$ $[-.018,-.003]$ \\
-    CLIP-ft (score)   & $.434$ & $.446$ & $-.013$ $[-.021,-.005]$ \\
-    CLIP-ft (emotion) & $.423$ & $.441$ & $-.018$ $[-.025,-.011]$ \\
-    Qwen3-VL 4B       & $.448$ & $.454$ & $-.006$ $[-.014,+.002]$ \\
-    Qwen3-VL 8B       & $.459$ & $.458$ & $+.001$ $[-.006,+.008]$ \\
+    \multirow{5}{*}{\textit{Anchored}}
+    & CLIP frozen       & $.435$ & $.445$ & $-.010$ $[-.018,-.003]$ \\
+    & CLIP-ft (score)   & $.434$ & $.446$ & $-.013$ $[-.021,-.005]$ \\
+    & CLIP-ft (emotion) & $.423$ & $.441$ & $-.018$ $[-.025,-.011]$ \\
+    & Qwen3-VL 4B       & $.448$ & $.454$ & $-.006$ $[-.014,+.002]$ \\
+    & Qwen3-VL 8B       & $.459$ & $.458$ & $+.001$ $[-.006,+.008]$ \\
     \midrule
-    \multicolumn{4}{l}{\textit{Unanchored}}\\
-    \addlinespace[2pt]
-    CLIP frozen       & $.419$ & $.377$ & $+.041$ $[+.029,+.053]$ \\
-    CLIP-ft (score)   & $.427$ & $.425$ & $+.002$ $[-.007,+.011]$ \\
-    CLIP-ft (emotion) & $.419$ & $.421$ & $-.002$ $[-.011,+.006]$ \\
-    Qwen3-VL 4B       & $.436$ & $.362$ & $+.073$ $[+.061,+.086]$ \\
-    Qwen3-VL 8B       & $.446$ & $.382$ & $+.063$ $[+.051,+.075]$ \\
+    \multirow{5}{*}{\textit{Unanchored}}
+    & CLIP frozen       & $.419$ & $.377$ & $+.041$ $[+.029,+.053]$ \\
+    & CLIP-ft (score)   & $.427$ & $.425$ & $+.002$ $[-.007,+.011]$ \\
+    & CLIP-ft (emotion) & $.419$ & $.421$ & $-.002$ $[-.011,+.006]$ \\
+    & Qwen3-VL 4B       & $.436$ & $.362$ & $+.073$ $[+.061,+.086]$ \\
+    & Qwen3-VL 8B       & $.446$ & $.382$ & $+.063$ $[+.051,+.075]$ \\
     \bottomrule
 \end{tabular}
 \begin{tablenotes}[flushleft]\footnotesize
@@ -343,11 +344,12 @@ with
 where the emotion loss is averaged over seven concepts. Task gradients pass
 through the semantic layer, following the joint concept-bottleneck setup of
 Koh et al.~\cite{pmlr-v119-koh20a}. Joint training is restricted to the shared
-stage; it does not fine-tune a high-capacity extractor separately for each
-user.
+stage; it does not fine-tune a high-capacity extractor separately for each user.
+
 All evaluated MLP configurations perform below Ridge $\to$ Ridge in every
 domain. \Cref{tab:mlp_baseline,tab:mlp} therefore document nonlinear and
 joint-training checks rather than alternatives selected for the primary model.
+
 % ---------------MLP baseline---------------
 \begin{table*}[!tbp]
 \centering
@@ -356,11 +358,12 @@ joint-training checks rather than alternatives selected for the primary model.
 population-anchored, $N=100$.}
 \label{tab:mlp_baseline}
 \footnotesize
+\setlength{\tabcolsep}{3pt}
     \input{Table_Figure/supp/tab_mlp_baseline}
 \begin{tablenotes}[flushleft]\footnotesize
-\item Values are mean $\pm$ SEM after averaging seeds within units. Average
-SEM uses the participant-cluster bootstrap. This table is descriptive and
-contains no hypothesis tests.
+    \item Values are mean $\pm$ SEM after averaging seeds within units. Average
+    SEM uses the participant-cluster bootstrap. The table is descriptive and
+    contains no hypothesis tests.
 \end{tablenotes}
 \end{threeparttable}
 \end{table*}
@@ -372,12 +375,9 @@ contains no hypothesis tests.
 8B, population-anchored, $N=100$.}
 \label{tab:mlp}
 \footnotesize
-\setlength{\tabcolsep}{3pt}
     \input{Table_Figure/supp/tab_mlp_joint}
 \begin{tablenotes}[flushleft]\footnotesize
-    \item Values are mean $\pm$ SEM after averaging seeds within units. Average
-    SEM uses the participant-cluster bootstrap. The table is descriptive and
-    contains no hypothesis tests.
+    \item Values are mean $\pm$ SEM after averaging seeds within units. Average SEM uses the participant-cluster bootstrap. The evaluated MLP variants have lower mean SROCC and PLCC than Ridge $\to$ Ridge in every domain. The table is descriptive and contains no hypothesis tests.
 \end{tablenotes}
 \end{threeparttable}
 \end{table*}
@@ -419,7 +419,7 @@ CLIP, unanchored models, $N=100$, and three seeds.}
 
 % ---efficientcy graph detail
 \subsection{Detailed Rating-Budget Results}
-\cref{tab:efficiency_full} provides the complete numerical values across sample sizes $N \in \{10, 25, 50, 100\}$ plotted in Fig.~2 of the main manuscript.
+\cref{tab:efficiency_full} provides the complete numerical values across sample sizes $N \in \{10, 25, 50, 100\}$ plotted in Fig. ~2 of the main manuscript.
 
 \begin{table*}[!tbp]
 \centering
@@ -438,7 +438,7 @@ budgets with Qwen3-VL 8B and the population anchor.}
 \end{table*}
 
 % =======================<3>=========================
-\FloatBarrier
+% \FloatBarrier
 \section{Mediator design analysis}
 \label{sec:supp_mediator}
 % ==================================================
@@ -505,12 +505,10 @@ effects of inducing an emotion.
 The main model predicts the seven population-mean emotion ratings. We also
 tested a 14-dimensional target containing each mean and across-rater standard
 deviation, and a 35-dimensional target containing five rating-bin frequencies
-for each emotion. These variants ask whether disagreement information omitted
-by the mean is useful downstream.
-At $N=100$, the 14-dimensional and 7-dimensional targets are nearly identical
-(.434 and .435 SROCC). The histogram target is highest from $N=25$ onward but
-uses five times the width of the named bottleneck. We therefore retain the
-seven-dimensional mean target for the primary study
+for each emotion. 
+These variants ask whether disagreement information omitted by the mean is useful downstream. 
+At $N=100$, the 14-dimensional and 7-dimensional targets are nearly identical (.434 and .435 SROCC). 
+The histogram target is highest from $N=25$ onward but uses five times the width of the named bottleneck. We therefore retain the seven-dimensional mean target for the primary study
 (\cref{tab:distribution}).
 
 \begin{table*}[!tbp]
@@ -539,7 +537,7 @@ deviations), and 35 (seven five-bin histograms).}
 \end{threeparttable}
 \end{table*}
 % ==================================================
-\FloatBarrier
+% \FloatBarrier
 \section{Faithfulness Diagnostics}
 \label{sec:supp_faithfulness}
 % ==============================================
@@ -562,6 +560,7 @@ $\hat y_i=\hat y_{\mathrm{pop}}(x_i)+\mathbf z_i^\top
 replaces the stored personal coefficient and intercept with five eligible peer
 formulas; it uses the frozen $K=5$ protocol.
 
+% --Formula swap------------------------------
 \subsection{Formula Swap}
 
 With the population anchor, Own reaches .459 SROCC and .469 PLCC in the
@@ -612,6 +611,7 @@ peer swaps ($K=5$) within the same fold and domain.}
 % ---emotion cutout
 \subsection{Concept Ablation on Total Weights}
 \cref{tab:concept_ablation} shows the impact of holding individual emotion dimensions constant at support-set baselines.
+
 Holding the highest-weighted concept reduces Average SROCC from .459 to .361,
 whereas holding an average-weighted concept yields .435. The Bottom-weight
 SROCC contrast is not detected ($p=.628$), while its PLCC contrast is detected
@@ -658,8 +658,9 @@ $\mathbf w_{\mathrm{tot}}=\mathbf w_{\mathrm{pop}}+\boldsymbol\delta_u$.}
 
 For the anchored model, replacing the correctly aligned emotion vector with
 all cyclically mismatched image vectors reduces Average SROCC from .459 to
-.384 and PLCC from .469 to .392. The covariance-matched Gaussian control gives
-.385 SROCC, essentially the same as the cyclic-swap result. We therefore
+.384 and PLCC from .469 to .392. As a post-hoc descriptive scale check,
+covariance-matched Gaussian emotion vectors yield .385 Average SROCC,
+essentially matching the cyclic-swap result of .384. We therefore
 interpret the correct--swapped contrast as evidence that image--emotion
 alignment matters, without assigning a directional interpretation to the
 difference from the No-image condition (\cref{tab:image_swap}).
@@ -727,7 +728,7 @@ and domain. Own-user alignment exceeds this peer reference by .072 Spearman
 the corresponding user's empirical emotion--rating associations.}
 \label{tab:weight_alignment}
 \small
-\setlength{\tabcolsep}{4pt}
+% \setlength{\tabcolsep}{4pt}
 \input{Table_Figure/supp/tab_weight_alignment}
 \begin{tablenotes}[flushleft]\footnotesize
     \item For each user--domain unit, the seven entries of $\mathbf w_{\mathrm{tot}}$
@@ -762,25 +763,13 @@ the corresponding user's empirical emotion--rating associations.}
     Peers are assigned by a fixed within-fold, within-domain cyclic shift; no
     unit is paired with itself. The interval uses a participant-cluster
     bootstrap on the paired difference.
-    \item This post-hoc scope check is descriptive and is not added to the
-    prespecified Holm families in \cref{tab:holm_families}.
+    \item This post-hoc scope check is descriptive and is not added to the correction Holm families in \cref{tab:holm_families}.
 \end{tablenotes}
 \end{threeparttable}
 \end{minipage}
 \end{table*}
 
 % ==================================================
-\FloatBarrier
-\section{Qualitative Diagnostics and Case Studies}
-\label{sec:supp_qualitative}
-% ==================================================
-
-
-\subsection{Qualitative Analysis and Failure Case}
-\cref{fig:qualitative} makes the numerical formula concrete. The example
-is the top-ranked candidate produced by the disclosed search in
-\texttt{qualitative\_triple\_search.py}. The figure is illustrative rather than an additional
-hypothesis test; the aggregate diagnostics above carry the statistical claims.
 
 \begin{figure*}[!tbp]
     \centering
@@ -795,10 +784,20 @@ hypothesis test; the aggregate diagnostics above carry the statistical claims.
     \label{fig:qualitative}
 \end{figure*}
 
+% \FloatBarrier
+\section{Qualitative Diagnostics and Case Studies}
+\label{sec:supp_qualitative}
+% ==================================================
 
-\FloatBarrier
+\subsection{Qualitative Analysis and Failure Case}
+\cref{fig:qualitative} makes the numerical formula concrete. The example
+is the top-ranked candidate produced by the disclosed search in
+\texttt{qualitative\_triple\_search.py}. The figure is illustrative rather than an additional
+hypothesis test; the aggregate diagnostics above carry the statistical claims.
+
+
+% \FloatBarrier
 \section{Scope of the Evidence}
-
 The seven personal coefficients describe how an individual's prediction
 departs from a population branch fitted on raw visual features; they do not
 decompose that shared branch. The computational diagnostics provide evidence
