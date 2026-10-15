@@ -17,11 +17,18 @@ COL_WIDTH = 3.3
 HEIGHT_2PANEL = 1.9
 HEIGHT_3PANEL = 2.2
 
-BLUE = "#185FA5"     # our model
-GREY = "#9E9E9E"     # baseline
-AMBER = "#BA7517"    # content-free control
-TEAL = "#1D9E75"
-
+COLOR = {
+    "blue": "#185FA5",     # our model
+    "blue_mid": "#5B9BD5", 
+    "blue_light": "#AFC9E8",  
+    "grey": "#9E9E9E",     # baseline
+    "grey_mid": "#B0B0B0",
+    "grey_light": "#D0D0D0",
+    "amber":  "#8C4A0F",    # content-free control
+    "amber_mid": "#BA7517",
+    "amber_light": "#E8B87A",
+    "teal": "#1D9E75"
+}
 
 def setup() -> None:
     plt.rcParams.update({

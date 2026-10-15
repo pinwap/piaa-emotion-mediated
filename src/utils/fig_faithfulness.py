@@ -1,20 +1,33 @@
 """Faithfulness figure -- formula swap, concept ablation, and image swap.
+    mode = {"bar", "raincloud"->half violin KDE+boxplot}
+    show_sig = True/False
+    
+    Use:
+    uv run python -m src.utils.fig_faithfulness              # bars + sig
+    uv run python -m src.utils.fig_faithfulness raincloud    # raincloud + sig
+    uv run python -m src.utils.fig_faithfulness bars nosig   # bars ไม่มี sig เก่า
 """
 from __future__ import annotations
 
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
+from src.config import PROJECT_ROOT
 from src.data.data import DOMAINS
-from src.utils.plots import BLUE, COL_WIDTH, GREY, AMBER, grid, save, setup, FULL_WIDTH
+from src.utils.plots import COLOR, grid, save, setup, FULL_WIDTH, COL_WIDTH
 from src.utils.metrics import participant_cluster_bootstrap
 
-DOM_LABEL = {"art": "Artwork", "fashion": "Fashion", "landscape": "Landscape"}
 GROUPS = DOMAINS + [None]
-XLABELS = [DOM_LABEL[d] for d in DOMAINS] + ["Average"]
+XLABELS = ["Artwork", "Fashion", "Landscape", "Average"]
 
+def _get_holm_sig(holm_df: pd.DataFrame):
+    pass
 
 def stat(series: pd.Series, err: str = "sem") -> tuple[float, float]:
     v = series.to_numpy(float)
@@ -37,34 +50,34 @@ def grouped(df: pd.DataFrame, col: str, err: str) -> tuple[np.ndarray, np.ndarra
     return np.array(means), np.array(errs)
 
 
-def panel_swap(ax, swap_anc: pd.DataFrame, swap_pln: pd.DataFrame, err: str):
+def panel_swap(ax, formula_anc: pd.DataFrame, formula_plain: pd.DataFrame, err: str):
     x = np.arange(len(XLABELS))
     width = 0.125
 
     # Pop-Anchored (Primary: Solid BLUE tones)
-    m_own_a, e_own_a = grouped(swap_anc, "own_srocc", err)
-    m_pop_a, e_pop_a = grouped(swap_anc, "pop_srocc", err)
-    m_oth_a, e_oth_a = grouped(swap_anc, "other_srocc", err)
+    m_own_a, e_own_a = grouped(formula_anc, "own_srocc", err)
+    m_pop_a, e_pop_a = grouped(formula_anc, "pop_srocc", err)
+    m_oth_a, e_oth_a = grouped(formula_anc, "other_srocc", err)
 
     # Plain (Comparison: Soft Grey with academic Hatch)
-    m_own_p, e_own_p = grouped(swap_pln, "own_srocc", err)
-    m_pop_p, e_pop_p = grouped(swap_pln, "pop_srocc", err)
-    m_oth_p, e_oth_p = grouped(swap_pln, "other_srocc", err)
+    m_own_p, e_own_p = grouped(formula_plain, "own_srocc", err)
+    m_pop_p, e_pop_p = grouped(formula_plain, "pop_srocc", err)
+    m_oth_p, e_oth_p = grouped(formula_plain, "other_srocc", err)
 
     # Draw 6 bars per x-location:
     ax.bar(x - 2.5 * width, m_own_a, width, yerr=e_own_a, capsize=2, label="Own (Anchor)",
-           color=BLUE, edgecolor="white", linewidth=0.4)
+           color=COLOR["blue"], edgecolor="white", linewidth=0.4)
     ax.bar(x - 1.5 * width, m_pop_a, width, yerr=e_pop_a, capsize=2, label="Pop (Anchor)",
-               color="#5B9BD5", edgecolor="white", linewidth=0.4)
+               color=COLOR["blue_mid"], edgecolor="white", linewidth=0.4)
     ax.bar(x - 0.5 * width, m_oth_a, width, yerr=e_oth_a, capsize=2, label="Other (Anchor)",
-               color="#AFC9E8", edgecolor="white", linewidth=0.4)
+               color=COLOR["blue_light"], edgecolor="white", linewidth=0.4)
 
     ax.bar(x + 0.5 * width, m_own_p, width, yerr=e_own_p, capsize=2, label="Own (Plain)",
-           color=GREY, hatch="///", edgecolor="white", linewidth=0.4)
+           color=COLOR["grey"], hatch="///", edgecolor="white", linewidth=0.4)
     ax.bar(x + 1.5 * width, m_pop_p, width, yerr=e_pop_p, capsize=2, label="Pop (Plain)",
-           color="#B0B0B0", hatch="///", edgecolor="white", linewidth=0.4)
+           color=COLOR["grey_mid"], hatch="///", edgecolor="white", linewidth=0.4)
     ax.bar(x + 2.5 * width, m_oth_p, width, yerr=e_oth_p, capsize=2, label="Other (Plain)",
-           color="#D0D0D0", hatch="///", edgecolor="white", linewidth=0.4)
+           color=COLOR["grey_light"], hatch="///", edgecolor="white", linewidth=0.4)
 
     ax.set_xticks(x)
     ax.set_xticklabels(XLABELS, fontsize=7)
@@ -86,10 +99,10 @@ def panel_ablation(ax, abl: pd.DataFrame, err: str):
         "w/o Top": grouped(abl, "top1_srocc", err),
     }
     colors = {
-        "Full Model": BLUE,
-        "w/o Bottom": "#E8B87A",
-        "w/o Avg": AMBER,
-        "w/o Top": "#8C4A0F"
+        "Full Model": COLOR["blue"],
+        "w/o Bottom": COLOR["amber_light"],
+        "w/o Avg": COLOR["amber_mid"],
+        "w/o Top": COLOR["amber"]
     }
 
     n = len(series)
@@ -112,9 +125,9 @@ def panel_image_swap(ax, anchored: pd.DataFrame, err: str):
     x = np.arange(len(XLABELS))
     width = 0.125
     series = [
-        ("Correct Image", anchored, "correct_srocc", BLUE),
-        ("No-Image", anchored, "no_image_srocc", "#5B9BD5"),
-        ("Swapped Image", anchored, "swapped_srocc", "#AFC9E8"),
+        ("Correct Image", anchored, "correct_srocc", COLOR["blue"]),
+        ("No-Image", anchored, "no_image_srocc", COLOR["blue_mid"]),
+        ("Swapped Image", anchored, "swapped_srocc", COLOR["blue_light"]),
     ]
     offsets = [-1.0, 0.0, 1.0]
     for off, (label, frame, col, color) in zip(offsets, series):
@@ -133,26 +146,26 @@ def panel_image_swap(ax, anchored: pd.DataFrame, err: str):
               bbox_to_anchor=(1.0, 1.05))
 
 
-def run(cfg, err: str = "sem"):
+def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True):
     setup()
     out_dir = cfg.output_dir / "faithfulness"
+    holm_df = pd.read_csv(PROJECT_ROOT / "output" / "statistics" / "holm_corrected.csv")
+    
     abl = pd.read_csv(out_dir / "ablation.csv")
-    swap_anc = pd.read_csv(out_dir / "formula_swap.csv")
-    swap_pln = pd.read_csv(out_dir / "formula_swap_unanchored.csv")
-    image = pd.read_csv(out_dir / "image_swap.csv")
+    formula_anc = pd.read_csv(out_dir / "formula_swap.csv")
+    formula_plain = pd.read_csv(out_dir / "formula_swap_unanchored.csv")
+    image_anc= pd.read_csv(out_dir / "image_swap.csv")
     image_plain = pd.read_csv(out_dir / "image_swap_unanchored.csv")
 
     fig, axes = plt.subplots(3, 1, figsize=(COL_WIDTH, 3.4), sharex=True)
-    panel_swap(axes[0], swap_anc, swap_pln, err)
+    panel_swap(axes[0], formula_anc, formula_plain, err)
     panel_ablation(axes[1], abl, err)
-    panel_image_swap(axes[2], image, err)
+    panel_image_swap(axes[2], image_anc, err)
     
-    # Tight margins, minimal horizontal gap between panels
-    # fig.tight_layout()
     fig.supylabel("Spearman SROCC", fontsize=8, x=-0.054)
     fig.subplots_adjust(hspace=0.28, left=0.07, right=0.98, top=0.90, bottom=0.22)
     
-    save(fig, cfg.figures_dir / f"fig_faithfulness_{err}")
+    save(fig, cfg.figures_dir / f"fig_faithfulness_{mode}_{err}")
 
 if __name__ == "__main__":
     import sys

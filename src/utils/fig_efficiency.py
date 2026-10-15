@@ -11,15 +11,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.utils.plots import AMBER, BLUE, GREY, grid, save, setup
+from src.utils.plots import COLOR, grid, save, setup
 from src.utils.metrics import participant_cluster_bootstrap
 
 METHODS = ("pop_zero", "direct", "hybrid")
 
 STYLE = {
-    "pop_zero": dict(color=AMBER, ls=":", marker=None, label="Population (0 user params)"),
-    "direct":   dict(color=GREY, ls="--", marker="^", label="Direct (4096 params)"),
-    "hybrid":   dict(color=BLUE, ls="-", marker="o", label="Hybrid (7 params)"),
+    "pop_zero": dict(color=COLOR["amber_mid"], ls=":", marker=None, label="Population (0 user params)"),
+    "direct":   dict(color=COLOR["grey"], ls="--", marker="^", label="Direct (4096 params)"),
+    "hybrid":   dict(color=COLOR["blue"], ls="-", marker="o", label="Hybrid (7 params)"),
 }
 
 
@@ -66,7 +66,7 @@ def plot_panel(ax, df, metric, n_list, err, domain: str | None = None, annotate_
         pop, _ = stats(df, "pop_zero", metric, n_list, err, domain)
         direct, _ = stats(df, "direct", metric, n_list, err, domain)
         
-        final_points = [("hybrid", hy[-1], BLUE),("pop_zero", pop[-1], AMBER),("direct", direct[-1], GREY)]
+        final_points = [("hybrid", hy[-1], COLOR["blue"]),("pop_zero", pop[-1], COLOR["amber_mid"]),("direct", direct[-1], COLOR["grey"])]
         # Annotate by rank
         final_points.sort(key=lambda item: item[1], reverse=True)
         offsets = [5, -1, -5]

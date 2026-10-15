@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from src.utils.plots import BLUE, COL_WIDTH, GREY, grid, save, setup
+from src.utils.plots import COLOR, COL_WIDTH, grid, save, setup
 
 # lines here are ordered by magnitude, not identity, so the ramp is one hue
 # light to dark rather than a categorical set. Two readers with different
@@ -54,7 +54,7 @@ def _read(pattern: str) -> pd.DataFrame:
 
 def _shade(i: int, n: int) -> str:
     if n <= 1:
-        return BLUE
+        return COLOR["blue"]
     return RAMP[round(i * (len(RAMP) - 1) / (n - 1))]
 
 
@@ -114,11 +114,11 @@ def panel_ridge(ax, log: pd.DataFrame) -> str | None:
     m = m.sort_values("alpha")
     lower_is_better = bool(d["lower_is_better"].iloc[0])
 
-    ax.plot(m["alpha"], m["score"], marker="o", markersize=3, color=BLUE)
+    ax.plot(m["alpha"], m["score"], marker="o", markersize=3, color=COLOR["blue"])
     if m["picked"].max() > 0:
         best = m.loc[m["picked"].idxmax()]
         ax.plot(best["alpha"], best["score"], marker="o", markersize=7,
-                markerfacecolor="none", markeredgewidth=1.2, color=BLUE, zorder=5)
+                markerfacecolor="none", markeredgewidth=1.2, color=COLOR["blue"], zorder=5)
         ax.annotate(f"selected $\\alpha$ = {best['alpha']:g}",
                     (best["alpha"], best["score"]), textcoords="offset points",
                     xytext=(0, -16), fontsize=6, color="#222222", ha="center")
@@ -152,10 +152,10 @@ def panel_dof(ax, raw: pd.DataFrame, mediator: str, width: int) -> str | None:
     # x in axes fraction, y in data units, so the labels sit on their lines
     # and cannot be pushed outside the panel by the box positions
     tr = ax.get_yaxis_transform()
-    ax.axhline(width, color=GREY, linewidth=0.8, linestyle=(0, (4, 3)))
+    ax.axhline(width, color=COLOR["grey"], linewidth=0.8, linestyle=(0, (4, 3)))
     ax.text(0.98, width, f"no shrinkage ({width})", transform=tr, fontsize=6,
             ha="right", va="bottom", color="#555555")
-    ax.axhline(0, color=GREY, linewidth=0.8, linestyle=(0, (4, 3)))
+    ax.axhline(0, color=COLOR["grey"], linewidth=0.8, linestyle=(0, (4, 3)))
     ax.text(0.98, 0, "collapsed onto the anchor (0)", transform=tr, fontsize=6,
             ha="right", va="top", color="#555555")
 

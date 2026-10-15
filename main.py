@@ -135,14 +135,11 @@ def main(argv=None) -> int:
         return 0
     if args.experiment == "fig_faithfulness":
         from src.utils import fig_faithfulness
-        fig_faithfulness.run(cfg, "sd")
         fig_faithfulness.run(cfg, "sem")
         return 0
     if args.experiment == "fig_efficiency":
         from src.utils import fig_efficiency
-        fig_efficiency.run(cfg, "sd")
-        fig_efficiency.run(cfg, "sem")
-        fig_efficiency.run(cfg, "sd", domain_split=True)
+        # fig_efficiency.run(cfg, "sem")
         fig_efficiency.run(cfg, "sem", domain_split=True)
         return 0
 
