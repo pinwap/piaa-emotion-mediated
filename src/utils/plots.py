@@ -24,7 +24,7 @@ COLOR = {
     "blue": "#185FA5",     # our model
     "blue_mid": "#5B9BD5", 
     "blue_light": "#AFC9E8",  
-    "grey": "#9E9E9E",     # baseline
+    "grey": "#8B8B8B",     # baseline
     "grey_mid": "#B0B0B0",
     "grey_light": "#D0D0D0",
     "amber":  "#8C4A0F",    # content-free control
@@ -60,7 +60,7 @@ def setup() -> None:
         "boxplot.meanprops.markersize": 2.5,
         "boxplot.meanprops.markeredgecolor": COLOR["ink"],
         "boxplot.medianprops.color": COLOR["ink"],
-        "boxplot.medianprops.linewidth": 0.9,
+        "boxplot.medianprops.linewidth": 0.5,
         "boxplot.boxprops.linewidth": 0.5,
         "boxplot.whiskerprops.color": COLOR["ink_mid"],
         "boxplot.whiskerprops.linewidth": 0.5,
@@ -112,7 +112,8 @@ def bar_err(ax, x:float, values, color:str, width:float, err="sem",
     return float(mean+e)
 
 def half_violin(ax, x:float, values, color:str, width: float,
-                label: str |None= None, hatch: str| None = None) -> tuple[float, float]:
+                label: str |None= None, hatch: str| None = None,
+                alpha: float = 0.85) -> tuple[float, float]:
     """Gausian KDE, Silverman bandwidth at left of x
     return (bottom, top) for size reference
     """
@@ -125,8 +126,8 @@ def half_violin(ax, x:float, values, color:str, width: float,
     dens = gaussian_kde(v, bw_method="silverman")(y)
     dens = dens / dens.max() * width
     
-    ax.fill_betweenx(y, x-dens, x, color=color, alpha=0.45, linewidth=0, 
-                     hatch=hatch, label=label, zorder=2)
+    ax.fill_betweenx(y, x-dens, x, facecolor=color, alpha=alpha, edgecolor="white", 
+                     linewidth=0, hatch=hatch, label=label, zorder=2)
     ax.plot(x-dens, y, color=color, linewidth=0.5, zorder=3)
     
     return float(min(y[0], v.min())), float(max(y[-1], v.max()))
@@ -139,12 +140,15 @@ def box(ax, x: float, values, color: str, width:float) -> None:
         [v], positions=[x], widths=[width], orientation="vertical",
         patch_artist=True, showmeans=True, manage_ticks=False,
         
-        boxprops = dict(facecolor = color, alpha=0.35),
+        boxprops = dict(facecolor = "white", edgecolor=COLOR["ink"]),
+        meanprops = dict(markeredgewidth=0.5),
         
         zorder = 4,
     )
     
-def sig_bracket(ax, x1: float, x2: float, y: float, text: str, h: float, fontsize: float =5.5) -> None:
+def sig_bracket(ax, x1: float, x2: float, y: float, text: str, h: float, star_gap: float, fontsize: float =5.5) -> None:
     # line coordinate with h; height of the bracket, and significant sign on top
     ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], color=COLOR["ink"], linewidth=0.6, clip_on=False, zorder=7)
-    ax.text((x1+x2)/2, y+h, text, ha="center", va="bottom", fontsize=fontsize, zorder=8)
+    va = "baseline" if '*' in text else "bottom"
+    ax.annotate(text, xy=((x1+x2)/2, y+h), xytext=(0, star_gap), textcoords="offset points", 
+                ha="center", va=va, fontsize=fontsize, zorder=8)

@@ -32,6 +32,7 @@ COLUMN_MAP = {
 DOMAIN_NORMALIZE = {"art": "art", "fashion": "fashion",
                     "landscape": "landscape", "scenery": "landscape"}
 DOMAINS = ["art", "fashion", "landscape"]
+DOMAIN_LABEL = {"art": "Artwork", "fashion": "Fashion", "landscape": "Landscape"}
 
 EXPECTED = {"n_interactions": 87836, "n_users": 129, "n_stimuli": 6526}
 

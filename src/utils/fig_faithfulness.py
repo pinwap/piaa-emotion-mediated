@@ -1,176 +1,201 @@
 """Faithfulness figure -- formula swap, concept ablation, and image swap.
     mode = {"bar", "raincloud"->half violin KDE+boxplot}
-    show_sig = True/False
+    show_sig = draw Holm-corrected significant brackets
     
     Use:
-    uv run python -m src.utils.fig_faithfulness              # bars + sig
-    uv run python -m src.utils.fig_faithfulness raincloud    # raincloud + sig
-    uv run python -m src.utils.fig_faithfulness bars nosig   # bars ไม่มี sig เก่า
+    uv run python -m src.utils.fig_faithfulness                     # raincloud + sig
+    
+    domain (conditions)
+    legend_label = for color (Own, Pop, Other)/(Full, Average, Bottom, Top)
+    
+    EDIT:
+    add/delete graph          -> add/ delete Condition() and related Comparison()
+    add/delete signification  -> add/delete Comparison()
+    swap position             -> swap Condtion order
+    change width, size        -> LAYOUT 
+        step : x distance between conditions (None = share 0.84 in group)
+        violin_frac, box_frac : width as a fraction of step
+        bracket_h : y height of bracket's leg
+        bracket_gap : y distance between stacked bracket level
 """
 from __future__ import annotations
 
-from pathlib import Path
+import logging
 
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 
-from src.config import PROJECT_ROOT
-from src.data.data import DOMAINS
-from src.utils.plots import COLOR, grid, save, setup, FULL_WIDTH, COL_WIDTH
-from src.utils.metrics import participant_cluster_bootstrap
+from src.config import PROJECT_ROOT, Config
+from src.data.data import DOMAINS, DOMAIN_LABEL
+from src.utils.plots import *
 
-GROUPS = DOMAINS + [None]
-XLABELS = ["Artwork", "Fashion", "Landscape", "Average"]
+log = logging.getLogger(__name__)
 
-def _get_holm_sig(holm_df: pd.DataFrame):
-    pass
+DOMAIN_KEYS = DOMAINS + ["average"]
+X_LABELS = [DOMAIN_LABEL[d] for d in DOMAINS] + ["Average"]
+GROUP_CENTERS = np.arange(len(DOMAIN_KEYS), dtype=float) # = 0 1 2 3
+BAR_YMIN = 0.28
 
-def stat(series: pd.Series, err: str = "sem") -> tuple[float, float]:
-    v = series.to_numpy(float)
-    v = v[np.isfinite(v)]
-    m, sd = v.mean(), v.std(ddof=1)
-    return m, (sd / np.sqrt(len(v)) if err == "sem" else sd)
+LAYOUT = {
+    "bars" : dict(step=0.125, violin_frac=0.8, box_frac=0.0, bracket_h=0.008, bracket_gap=0.028),
+    "raincloud" : dict(step=None, violin_frac=0.65, box_frac=0.35, bracket_h=0.02, bracket_gap=0.14),
+}
+FONT = dict(title=8, tick=6, legend=6, ylabel=8, star=5.5, star_gap=0.6)
+LEGEND_DEFAULT = dict(fontsize=6, frameon=False, handlelength=0.8, columnspacing=0.6,
+                      loc="lower center", bbox_to_anchor=(0.5, 1.0))
 
+def get_holm_sig(holm_df: pd.DataFrame, block: str, domain: str, contrast: str, metric: str="srocc")-> str:
+    if holm_df is None:
+        return ""
+    row = holm_df[(holm_df.table == "figure_faithfulness")
+                  &(holm_df.block == block) & (holm_df.domain == domain) 
+                  & (holm_df.contrast == contrast) & (holm_df.metric == metric)]
+    if len(row) != 1:
+        print(f"Warning: {len(row)} Holm-corrected p-value found for {block}, {domain}, {contrast}, {metric}")
+        return ""
+    pval = float(row["p_holm"].iloc[0])
+    return "***" if pval < 0.001 else "**" if pval < 0.01 else "*" if pval < 0.05 else "n.s."
 
-def grouped(df: pd.DataFrame, col: str, err: str) -> tuple[np.ndarray, np.ndarray]:
-    means, errs = [], []
-    for dom in GROUPS:
-        d = df if dom is None else df[df.domain == dom]
-        if dom is None and err == "sem":
-            result = participant_cluster_bootstrap(d[col], d["user_id"])
-            m, e = result["mean"], result["sem"]
-        else:
-            m, e = stat(d[col], err)
-        means.append(m)
-        errs.append(e)
-    return np.array(means), np.array(errs)
-
-
-def panel_swap(ax, formula_anc: pd.DataFrame, formula_plain: pd.DataFrame, err: str):
-    x = np.arange(len(XLABELS))
-    width = 0.125
-
-    # Pop-Anchored (Primary: Solid BLUE tones)
-    m_own_a, e_own_a = grouped(formula_anc, "own_srocc", err)
-    m_pop_a, e_pop_a = grouped(formula_anc, "pop_srocc", err)
-    m_oth_a, e_oth_a = grouped(formula_anc, "other_srocc", err)
-
-    # Plain (Comparison: Soft Grey with academic Hatch)
-    m_own_p, e_own_p = grouped(formula_plain, "own_srocc", err)
-    m_pop_p, e_pop_p = grouped(formula_plain, "pop_srocc", err)
-    m_oth_p, e_oth_p = grouped(formula_plain, "other_srocc", err)
-
-    # Draw 6 bars per x-location:
-    ax.bar(x - 2.5 * width, m_own_a, width, yerr=e_own_a, capsize=2, label="Own (Anchor)",
-           color=COLOR["blue"], edgecolor="white", linewidth=0.4)
-    ax.bar(x - 1.5 * width, m_pop_a, width, yerr=e_pop_a, capsize=2, label="Pop (Anchor)",
-               color=COLOR["blue_mid"], edgecolor="white", linewidth=0.4)
-    ax.bar(x - 0.5 * width, m_oth_a, width, yerr=e_oth_a, capsize=2, label="Other (Anchor)",
-               color=COLOR["blue_light"], edgecolor="white", linewidth=0.4)
-
-    ax.bar(x + 0.5 * width, m_own_p, width, yerr=e_own_p, capsize=2, label="Own (Plain)",
-           color=COLOR["grey"], hatch="///", edgecolor="white", linewidth=0.4)
-    ax.bar(x + 1.5 * width, m_pop_p, width, yerr=e_pop_p, capsize=2, label="Pop (Plain)",
-           color=COLOR["grey_mid"], hatch="///", edgecolor="white", linewidth=0.4)
-    ax.bar(x + 2.5 * width, m_oth_p, width, yerr=e_oth_p, capsize=2, label="Other (Plain)",
-           color=COLOR["grey_light"], hatch="///", edgecolor="white", linewidth=0.4)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(XLABELS, fontsize=7)
-    # ax.set_ylabel("Spearman SROCC")
-    ax.set_title("(a) Formula Swap (Personalization)", fontsize=8.5)
-    ax.set_ylim(0.28, 0.59)
-    grid(ax)
+def draw_panel(ax, panel: dict, holm: pd.DataFrame|None, 
+               mode: str, show_sig: bool, err: str)->None:
+    layout = LAYOUT[mode]
+    n = len(panel["conditions"])
+    step = layout["step"] or 0.84/n
+    offsets = (np.arange(n)-(n-1)/2)*step # -> [-step, 0, +step]
+    
+    for group_index, (domain, group_center) in enumerate(zip(DOMAIN_KEYS,GROUP_CENTERS)):
+        group_tops = [] #for significant height reference 
+        for (table, col, label, color, hatch), offset in zip(panel["conditions"], offsets):
+            domain_rows = table if domain == "average" else table[table["domain"] == domain]
+            x = group_center+offset
+            legend_label = label if group_index == 0 else None #average
+            
+            if mode == "bars":
+                user_ids = domain_rows["user_id"] if domain == "average" else None 
+                top = bar_err(ax, x=x, values=domain_rows[col], color=color, width=step, 
+                              err=err, ids=user_ids, label=legend_label, hatch=hatch)
+            else:
+                lo, top = half_violin(ax, x=x, values=domain_rows[col], color=color, 
+                                      width=step*layout["violin_frac"], label=legend_label, hatch=hatch)
+                box(ax, x=x, values=domain_rows[col], color=color, width=step*layout["box_frac"])
+            group_tops.append(top)
+            
+        if show_sig:
+            base=max(group_tops)+layout["bracket_h"]
+            for i, j, contrast, level in panel["comparisons"]:
+                star = get_holm_sig(holm_df=holm, block=panel["block"], domain=domain, contrast=contrast)
+                if star:
+                    sig_bracket(ax, x1=group_center+offsets[i], x2=group_center+offsets[j],
+                                y=base+level*layout["bracket_gap"], h=layout["bracket_h"],
+                                text=star, star_gap=FONT["star_gap"], fontsize=FONT["star"])
+        
     handles, labels = ax.get_legend_handles_labels()
-    order = 0, 3, 1, 4, 2, 5
-    ax.legend([handles[i] for i in order], [labels[i] for i in order], fontsize=6, loc="upper right", ncol=3, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.16))
+    order =  panel.get("legend_order", range(len(handles)))
+    ax.set_title(panel["title"], fontsize= FONT["title"],
+                 **panel.get("title_detail",{}))
+    ax.legend([handles[k] for k in order], [labels[k] for k in order], 
+              **{**LEGEND_DEFAULT, **panel.get("ax_legend_detail",{})},
+              )
 
-
-def panel_ablation(ax, abl: pd.DataFrame, err: str):
-    full_col = "full_srocc" if "full_srocc" in abl.columns else "base_srocc"
-    series = {
-        "Full Model": grouped(abl, full_col, err),
-        "w/o Bottom": grouped(abl, "bottom1_srocc", err),
-        "w/o Avg": grouped(abl, "avg1_srocc", err),
-        "w/o Top": grouped(abl, "top1_srocc", err),
-    }
-    colors = {
-        "Full Model": COLOR["blue"],
-        "w/o Bottom": COLOR["amber_light"],
-        "w/o Avg": COLOR["amber_mid"],
-        "w/o Top": COLOR["amber"]
-    }
-
-    n = len(series)
-    width = 0.125 #0.8 / n
-    x = np.arange(len(XLABELS))
-    for i, (label, (means, errs)) in enumerate(series.items()):
-        off = (i - (n - 1) / 2) * width
-        ax.bar(x + off, means, width, yerr=errs, capsize=2, label=label,
-               color=colors[label], edgecolor="white", linewidth=0.4)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(XLABELS, fontsize=7)
-    ax.set_title("(b) Concept Ablation (Importance)", fontsize=8.5, y=0.88)
-    ax.set_ylim(0.28, 0.58)
-    grid(ax)
-    ax.legend(fontsize=6, loc="upper right", ncol=4, frameon=False, handlelength=0.8, columnspacing=0.6, bbox_to_anchor=(1.0, 1.05))
-
-
-def panel_image_swap(ax, anchored: pd.DataFrame, err: str):
-    x = np.arange(len(XLABELS))
-    width = 0.125
-    series = [
-        ("Correct Image", anchored, "correct_srocc", COLOR["blue"]),
-        ("No-Image", anchored, "no_image_srocc", COLOR["blue_mid"]),
-        ("Swapped Image", anchored, "swapped_srocc", COLOR["blue_light"]),
-    ]
-    offsets = [-1.0, 0.0, 1.0]
-    for off, (label, frame, col, color) in zip(offsets, series):
-        means, errs = grouped(frame, col, err)
-        ax.bar(x + off * width, means, width, yerr=errs, capsize=2,
-               label=label, color=color, edgecolor="white", linewidth=0.4)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(XLABELS, fontsize=7)
-    # ax.set_ylabel("Spearman SROCC")
-    ax.set_title("(c) Image Swap (Stimulus Specificity)", fontsize=8.5, y=0.88)
-    ax.set_ylim(0.28, 0.58)
-    grid(ax)
-    ax.legend(fontsize=6, loc="upper right", ncol=3, frameon=False,
-              handlelength=0.8, columnspacing=0.6,
-              bbox_to_anchor=(1.0, 1.05))
-
-
-def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True):
+def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True,
+        width: float = COL_WIDTH, height:float = 4.6):
     setup()
     out_dir = cfg.output_dir / "faithfulness"
-    holm_df = pd.read_csv(PROJECT_ROOT / "output" / "statistics" / "holm_corrected.csv")
+    holm_path = cfg.output_dir / "statistics" / "holm_corrected.csv"
     
-    abl = pd.read_csv(out_dir / "ablation.csv")
-    formula_anc = pd.read_csv(out_dir / "formula_swap.csv")
-    formula_plain = pd.read_csv(out_dir / "formula_swap_unanchored.csv")
-    image_anc= pd.read_csv(out_dir / "image_swap.csv")
-    image_plain = pd.read_csv(out_dir / "image_swap_unanchored.csv")
+    holm_df = pd.read_csv(holm_path) if holm_path.exists() else None
+    if show_sig and holm_df is None:
+        log.warning("%s not found -> figure has no significance brackets", holm_path)
+    
+    # ----tables-----
+    ablation = pd.read_csv(out_dir / "ablation.csv")
+    formula_swap_anchored = pd.read_csv(out_dir / "formula_swap.csv")
+    formula_swap_plain = pd.read_csv(out_dir / "formula_swap_unanchored.csv")
+    image_swap_anchored= pd.read_csv(out_dir / "image_swap.csv")
+    image_swap_plain = pd.read_csv(out_dir / "image_swap_unanchored.csv")
 
-    fig, axes = plt.subplots(3, 1, figsize=(COL_WIDTH, 3.4), sharex=True)
-    panel_swap(axes[0], formula_anc, formula_plain, err)
-    panel_ablation(axes[1], abl, err)
-    panel_image_swap(axes[2], image_anc, err)
+    # ----panel detail-----
+    panel_swap = {
+        "title" : "(a) Formula Swap",
+        "block" : "formula_swap",
+        "conditions" : [# data, column, label, color, hatch
+            # Pop-Anchored (Primary: Solid BLUE tones)
+            (formula_swap_anchored, "own_srocc", "Own (Anchor)", COLOR["blue"], None),
+            (formula_swap_anchored, "pop_srocc", "Pop (Anchor)", COLOR["blue_mid"], None),
+            (formula_swap_anchored, "other_srocc", "Other (Anchor)", COLOR["blue_light"], None),
+            # Plain (Comparison: Soft Grey with /// Hatch)
+            (formula_swap_plain, "own_srocc", "Own (Plain)", COLOR["grey"], "///"),
+            (formula_swap_plain, "pop_srocc", "Pop (Plain)", COLOR["grey_mid"], "///"),
+            (formula_swap_plain, "other_srocc", "Other (Plain)", COLOR["grey_light"], "///"),
+        ],
+            
+        "comparisons" : [# condition i, condition j, Holm contrast, bracket level
+            (0, 1, "Own vs Population mean [Anchored]", 0),
+            (0, 2, "Own vs Other user [Anchored]", 1),
+            (3, 4, "Own vs Population mean [Unanchored]", 0),
+            (3, 5, "Own vs Other user [Unanchored]", 1),
+        ],
+        "ax_legend_detail" : dict(ncol=3),
+        "legend_order": [0, 3, 1, 4, 2, 5],
+        "title_detail" : dict(pad=23),
+    }
+    panel_ablation = {
+        "title" : "(b) Concept Ablation",
+        "block" : "concept_ablation",
+        "conditions" : [
+            (ablation, "full_srocc", "Full Model", COLOR["blue"], None),
+            (ablation, "bottom1_srocc", "w/o Bottom", COLOR["amber_light"], None),
+            (ablation, "avg1_srocc", "w/o Avg", COLOR["amber_mid"], None),
+            (ablation, "top1_srocc", "w/o Top", COLOR["amber"], None),
+        ],
+            
+        "comparisons" : [
+            (0, 1, "Full model vs Bottom-weight emotion held", 0),
+            (0, 2, "Full model vs Average emotion held", 1),
+            (0, 3, "Full model vs Top-weight emotion held", 2),
+        ],
+        
+        "ax_legend_detail" : dict(ncol=4),
+        "title_detail" : dict(pad=14),
+    }
+    panel_image_swap = {
+        "title" : "(c) Image Swap",
+        "block" : "image_swap",
+        "conditions" : [
+            (image_swap_anchored, "correct_srocc", "Correct Image", COLOR["blue"], None),
+            (image_swap_anchored, "no_image_srocc", "No-Image", COLOR["blue_mid"], None),
+            (image_swap_anchored, "swapped_srocc", "Swapped Image", COLOR["blue_light"], None)
+        ],
+            
+        "comparisons" : [
+            (0, 1, "Correct image vs No-image emotion", 0),
+            (0, 2, "Correct image vs Swapped image", 1),
+        ],
+
+        "ax_legend_detail" : dict(ncol=3),
+        "title_detail" : dict(pad=14),
+    }
+
+    # ----draw-------------------------------------------------
+    panels = [panel_swap, panel_ablation, panel_image_swap]
+    fig, axes = plt.subplots(len(panels), 1, figsize=(width, height), sharex=True)
     
-    fig.supylabel("Spearman SROCC", fontsize=8, x=-0.054)
-    fig.subplots_adjust(hspace=0.28, left=0.07, right=0.98, top=0.90, bottom=0.22)
+    for ax, panel in zip(axes, panels):
+        draw_panel(ax, panel, holm_df, mode, show_sig, err)
+        if mode == "bars":
+            ax.set_ylim(bottom=BAR_YMIN)
+        grid(ax)
+        ax.tick_params(labelsize=FONT["tick"])
+    axes[-1].set_xticks(GROUP_CENTERS, X_LABELS)
+    axes[-1].set_xlim(GROUP_CENTERS[0]-0.5, GROUP_CENTERS[-1]+0.5)       
     
-    save(fig, cfg.figures_dir / f"fig_faithfulness_{mode}_{err}")
+    fig.supylabel("Spearman SROCC", fontsize=FONT["ylabel"])    
+    fig.tight_layout(pad=0.3, h_pad=0.6)
+
+    return save(fig, cfg.figures_dir / (f"fig_faithfulness_{mode}_{err}"+("_sig" if show_sig else "")))
 
 if __name__ == "__main__":
     import sys
     sys.path.insert(0, ".")
-    from src.config import Config
-
-    cfg = Config()
-    run(cfg, "sem")
+    run(Config(), "sem", mode="raincloud", show_sig=True, height=4.6)
