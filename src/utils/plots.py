@@ -35,6 +35,7 @@ COLOR = {
     "ink_mid": "#555555",
     "ink_light": "#999999",    
 }
+FONT = dict(title=8, legend=6, tick=6, xlabel=8, ylabel=8, annot=6, star=5.5, star_gap=0.6)
 
 def setup() -> None:
     plt.rcParams.update({
@@ -54,8 +55,6 @@ def setup() -> None:
         "ytick.color": COLOR["ink"],
         
         # box plot
-        "boxplot.showmeans": True,
-        "boxplot.patchartist": True,
         "boxplot.meanprops.marker": "x",
         "boxplot.meanprops.markersize": 2.5,
         "boxplot.meanprops.markeredgecolor": COLOR["ink"],
@@ -76,8 +75,8 @@ def setup() -> None:
     })
 
 
-def grid(ax) -> None:
-    ax.grid(axis="y", alpha=0.25, linewidth=0.4)
+def grid(ax, axis:str = "both") -> None:
+    ax.grid(axis=axis, alpha=0.25, linewidth=0.4)
 
 
 def save(fig, path: str | Path) -> Path:

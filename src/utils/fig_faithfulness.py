@@ -38,10 +38,10 @@ GROUP_CENTERS = np.arange(len(DOMAIN_KEYS), dtype=float) # = 0 1 2 3
 BAR_YMIN = 0.28
 
 LAYOUT = {
-    "bars" : dict(step=0.125, violin_frac=0.8, box_frac=0.0, bracket_h=0.008, bracket_gap=0.028),
+    "bars" : dict(step=0.125, box_frac=0.0, bracket_h=0.008, bracket_gap=0.028),
     "raincloud" : dict(step=None, violin_frac=0.65, box_frac=0.35, bracket_h=0.02, bracket_gap=0.14),
 }
-FONT = dict(title=8, tick=6, legend=6, ylabel=8, star=5.5, star_gap=0.6)
+
 LEGEND_DEFAULT = dict(fontsize=6, frameon=False, handlelength=0.8, columnspacing=0.6,
                       loc="lower center", bbox_to_anchor=(0.5, 1.0))
 
@@ -185,7 +185,7 @@ def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True,
         draw_panel(ax, panel, holm_df, mode, show_sig, err)
         if mode == "bars":
             ax.set_ylim(bottom=BAR_YMIN)
-        grid(ax)
+        grid(ax, axis="y")
         ax.tick_params(labelsize=FONT["tick"])
     axes[-1].set_xticks(GROUP_CENTERS, X_LABELS)
     axes[-1].set_xlim(GROUP_CENTERS[0]-0.5, GROUP_CENTERS[-1]+0.5)       
@@ -196,6 +196,4 @@ def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True,
     return save(fig, cfg.figures_dir / (f"fig_faithfulness_{mode}_{err}"+("_sig" if show_sig else "")))
 
 if __name__ == "__main__":
-    import sys
-    sys.path.insert(0, ".")
     run(Config(), "sem", mode="raincloud", show_sig=True, height=4.6)
