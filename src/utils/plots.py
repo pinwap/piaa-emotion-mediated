@@ -12,6 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  
 import numpy as np
+import pandas as pd
 from scipy.stats import gaussian_kde
 from src.utils.metrics import participant_cluster_bootstrap
 
@@ -35,7 +36,8 @@ COLOR = {
     "ink_mid": "#555555",
     "ink_light": "#999999",    
 }
-FONT = dict(title=8, legend=6, tick=6, xlabel=8, ylabel=8, annot=6, star=5.5, star_gap=0.6)
+FONT = dict(title=8, legend=6, tick=6, xlabel=8, ylabel=8,
+            annot=6, star=5.5, star_gap=0.6)
 
 def setup() -> None:
     plt.rcParams.update({
@@ -88,6 +90,20 @@ def save(fig, path: str | Path) -> Path:
     plt.close(fig)
     print(f"  wrote {p.with_suffix('.pdf').name} and .png")
     return p
+
+
+# --------holm significance
+def get_holm_sig(holm_df: pd.DataFrame | None, table: str, block: str, domain: str, contrast: str, metric: str="srocc")-> str: 
+    if holm_df is None:
+        return ""
+    row = holm_df[(holm_df.table == table) &(holm_df.block == block) & (holm_df.domain == domain) 
+                  & (holm_df.contrast == contrast) & (holm_df.metric == metric)]
+    if len(row) != 1:
+        print(f"Warning: {len(row)} Holm-corrected p-value found for {block}, {domain}, {contrast}, {metric}")
+        return ""
+    pval = float(row["p_holm"].iloc[0])
+    return "***" if pval < 0.001 else "**" if pval < 0.01 else "*" if pval < 0.05 else "n.s."
+
 
 # --- draw
 def bar_err(ax, x:float, values, color:str, width:float, err="sem",
@@ -144,7 +160,7 @@ def box(ax, x: float, values, color: str, width:float) -> None:
         
         zorder = 4,
     )
-    
+
 def sig_bracket(ax, x1: float, x2: float, y: float, text: str, h: float, star_gap: float, fontsize: float =5.5) -> None:
     # line coordinate with h; height of the bracket, and significant sign on top
     ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], color=COLOR["ink"], linewidth=0.6, clip_on=False, zorder=7)

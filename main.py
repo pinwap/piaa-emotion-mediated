@@ -139,8 +139,7 @@ def main(argv=None) -> int:
         return 0
     if args.experiment == "fig_efficiency":
         from src.utils import fig_efficiency
-        # fig_efficiency.run(cfg, "sem")
-        fig_efficiency.run(cfg, "sem", domain_split=True)
+        fig_efficiency.run(cfg, "sem")
         return 0
 
     ds, bb, sp, pipe = build(cfg, args.backbone)

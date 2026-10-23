@@ -15,14 +15,16 @@ from pathlib import Path
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
+DATA_PATH = {
+    "holm_path": PROJECT_ROOT/ "output" / "statistics" / "holm_corrected.csv"
+}
 
 @dataclass
 class Config:
     # paths
     data_dir: Path = PROJECT_ROOT / "Dataset" / "maked"
     split_dir: Path = PROJECT_ROOT / "Dataset" / "split_v4_10group"
-    features_dir: Path = PROJECT_ROOT / "features"
+    features_dir: Path = PROJECT_ROOT / "features" #backbone extracted features
     output_dir: Path = PROJECT_ROOT / "output"
     figures_dir: Path = PROJECT_ROOT / "paper" / "figures"
 

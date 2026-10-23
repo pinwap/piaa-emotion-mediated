@@ -223,7 +223,6 @@ def main(argv=None) -> int:
     _stage_efficiency_slice(ROOT / "output" / "raw_all_final.csv", work)
     cfg.backbone = "qwen8b"
     fig_efficiency.run(cfg, "sem")
-    fig_efficiency.run(cfg, "sem", domain_split=True)
     fig_faithfulness.run(cfg, "sem")
 
     print("\nRelease reproduction passed.")

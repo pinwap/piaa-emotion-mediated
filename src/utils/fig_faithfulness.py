@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from src.config import PROJECT_ROOT, Config
+from src.config import DATA_PATH, Config
 from src.data.data import DOMAINS, DOMAIN_LABEL
 from src.utils.plots import *
 
@@ -44,18 +44,6 @@ LAYOUT = {
 
 LEGEND_DEFAULT = dict(fontsize=6, frameon=False, handlelength=0.8, columnspacing=0.6,
                       loc="lower center", bbox_to_anchor=(0.5, 1.0))
-
-def get_holm_sig(holm_df: pd.DataFrame, block: str, domain: str, contrast: str, metric: str="srocc")-> str:
-    if holm_df is None:
-        return ""
-    row = holm_df[(holm_df.table == "figure_faithfulness")
-                  &(holm_df.block == block) & (holm_df.domain == domain) 
-                  & (holm_df.contrast == contrast) & (holm_df.metric == metric)]
-    if len(row) != 1:
-        print(f"Warning: {len(row)} Holm-corrected p-value found for {block}, {domain}, {contrast}, {metric}")
-        return ""
-    pval = float(row["p_holm"].iloc[0])
-    return "***" if pval < 0.001 else "**" if pval < 0.01 else "*" if pval < 0.05 else "n.s."
 
 def draw_panel(ax, panel: dict, holm: pd.DataFrame|None, 
                mode: str, show_sig: bool, err: str)->None:
@@ -84,7 +72,7 @@ def draw_panel(ax, panel: dict, holm: pd.DataFrame|None,
         if show_sig:
             base=max(group_tops)+layout["bracket_h"]
             for i, j, contrast, level in panel["comparisons"]:
-                star = get_holm_sig(holm_df=holm, block=panel["block"], domain=domain, contrast=contrast)
+                star = get_holm_sig(holm_df=holm, table="figure_faithfulness", block=panel["block"], domain=domain, contrast=contrast)
                 if star:
                     sig_bracket(ax, x1=group_center+offsets[i], x2=group_center+offsets[j],
                                 y=base+level*layout["bracket_gap"], h=layout["bracket_h"],
@@ -102,7 +90,7 @@ def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True,
         width: float = COL_WIDTH, height:float = 4.6):
     setup()
     out_dir = cfg.output_dir / "faithfulness"
-    holm_path = cfg.output_dir / "statistics" / "holm_corrected.csv"
+    holm_path = DATA_PATH["holm_path"]
     
     holm_df = pd.read_csv(holm_path) if holm_path.exists() else None
     if show_sig and holm_df is None:
