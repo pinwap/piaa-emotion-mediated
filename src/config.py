@@ -24,7 +24,7 @@ class Config:
     # paths
     data_dir: Path = PROJECT_ROOT / "Dataset" / "maked"
     split_dir: Path = PROJECT_ROOT / "Dataset" / "split_v4_10group"
-    features_dir: Path = PROJECT_ROOT / "features" #backbone extracted features
+    features_dir: Path = PROJECT_ROOT / "features" #backbone extract
     output_dir: Path = PROJECT_ROOT / "output"
     figures_dir: Path = PROJECT_ROOT / "paper" / "figures"
 

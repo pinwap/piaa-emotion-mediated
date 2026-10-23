@@ -6,10 +6,9 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from src.config import PROJECT_ROOT
 
-PROJ = Path(__file__).resolve().parents[2]
-
-DATA = PROJ / "Dataset"
+DATA = PROJECT_ROOT / "Dataset"
 OUTDIR = DATA / "split_v4_10group"
 
 # fold -> (test groups, val group) ; train = the rest
@@ -82,7 +81,7 @@ def main():
     print("-" * 90)
     print(f"coverage: each user is in test set {sorted(test_counts.unique())} times (should be [1]) | total users = {len(all_users)}")
     print(f"\nAll disjoint checks passed (user + image are separated completely in each fold)")
-    print(f"Results saved to: {OUTDIR.relative_to(PROJ)}")
+    print(f"Results saved to: {OUTDIR.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

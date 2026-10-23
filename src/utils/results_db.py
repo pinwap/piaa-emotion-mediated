@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from src.config import PROJECT_ROOT
 DB_PATH = PROJECT_ROOT / "output" / "raw_all.csv"
 
 #: what makes a run different from another run

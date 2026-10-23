@@ -1,13 +1,24 @@
 """Single entry point for the project.
 
-Examples:
-    uv run main.py verify --splits
-    uv run main.py table1
-    uv run main.py backbone --backbones clip,clip_ft,clip_ft_emo,qwen4b,qwen8b
-    uv run main.py efficiency --n-train 10,25,50,100
-    uv run main.py faithfulness
-
-Every command writes to output/<experiment name>/, always with a config.json next to it.
+Use:
+    Train
+        uv run main.py table1
+        uv run main.py backbone --backbones clip,clip_ft,clip_ft_emo,qwen4b,qwen8b
+        uv run main.py efficiency --n-train 10,25,50,100
+        uv run main.py faithfulness
+    Analyze
+        uv run main.py verify --splits
+        
+    Create tables or graphs
+        uv run main.py fig_efficiency
+        uv run main.py fig_faithfulness
+        uv run main.py generate_holm_tables
+        uv run main.py generate_importance_table
+        uv run main.py generate_regularizer_table
+        uv run main.py generate_stage1_table
+        uv run main.py load_qualitative
+        
+    Every command writes to output/<experiment name>/, always with a config.json next to it.
 """
 from __future__ import annotations
 
@@ -47,7 +58,7 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("experiment",
                     choices=["table1", "backbone", "efficiency", "faithfulness",
-                            "formulas",
+                            "formulas", "formula_stability",
                             "stage1_emotion_acc",
                             "stage2_emotion_importance", "gt_formula_matched",
                             "fig_faithfulness",
@@ -106,47 +117,55 @@ def main(argv=None) -> int:
     if args.joint_concept_weight is not None:
         cfg.joint_concept_weight = args.joint_concept_weight
 
+    # -----RUN------------------------
+    # verify the data split and/or reproducibility of a given experiment
     if args.experiment == "verify":
         from src.utils import verify
         if args.repro:
             ds, bb, sp, pipe = build(cfg, args.backbone)
             name = args.repro
             if name == "efficiency":
-                from src.experiments import efficiency
+                from src.experiments.models import efficiency
                 go = lambda: efficiency.run(cfg, pipe, [int(x) for x in args.n_train.split(",")])  # noqa: E731
             elif name == "faithfulness":
-                from src.experiments import faithfulness
+                from src.experiments.analysis import faithfulness
                 go = lambda: faithfulness.run(cfg, pipe)                      # noqa: E731
             elif name == "stage1_emotion_acc":
-                from src.experiments import stage1_emotion_acc
+                from src.experiments.models import stage1_emotion_acc
                 go = lambda: stage1_emotion_acc.run(cfg, pipe)                # noqa: E731
             elif name == "stage2_emotion_importance":
-                from src.experiments import stage2_emotion_importance
+                from src.experiments.models import stage2_emotion_importance
                 go = lambda: stage2_emotion_importance.run(cfg, pipe)         # noqa: E731
             else:
                 raise SystemExit(f"--repro does not know experiment '{name}'")
             return 0 if verify.check_repro(cfg, name, go) else 1
         return 0 if verify.check_splits(cfg) else 1
-
-    # Stored-result analyses -> able to regenerate diagnostics and figures from CSV databases.
-    if args.experiment == "faithfulness":
-        from src.experiments import faithfulness
-        faithfulness.run(cfg)
-        return 0
+    
+    # Make presentation table or figure
     if args.experiment == "fig_faithfulness":
-        from src.utils import fig_faithfulness
+        from src.experiments.presentation import fig_faithfulness
         fig_faithfulness.run(cfg, "sem")
         return 0
     if args.experiment == "fig_efficiency":
-        from src.utils import fig_efficiency
+        from src.experiments.presentation import fig_efficiency
         fig_efficiency.run(cfg, "sem")
         return 0
 
+    # Analysis
+    if args.experiment == "faithfulness":
+        from src.experiments.analysis import faithfulness
+        faithfulness.run(cfg)
+        return 0
+    if args.experiment == "formula_stability":
+        from src.experiments.analysis import formula_stability
+        formula_stability.run(cfg)
+        return 0
+    
+    # Experiment
     ds, bb, sp, pipe = build(cfg, args.backbone)
-
-    # --every experiment--
+    
     if args.experiment == "table1":
-        from src.experiments import table1
+        from src.experiments.models import table1
         cfg.n_train = int(args.n_train.split(",")[-1])
         heads = args.heads.split(",") if args.heads else None
         meds = args.mediators.split(",") if args.mediators else None
@@ -162,11 +181,11 @@ def main(argv=None) -> int:
         else:
             table1.run(cfg, pipe, ds, variant=args.stage2)
     elif args.experiment == "backbone":
-        from src.experiments import backbone
+        from src.experiments.models import backbone
         backbone.run(cfg, args.backbones.split(","), variant=args.stage2,
                      heads=args.heads.split(",") if args.heads else None)
     elif args.experiment == "efficiency":
-        from src.experiments import efficiency
+        from src.experiments.models import efficiency
         efficiency.run(cfg, pipe, [int(x) for x in args.n_train.split(",")],
                        variant=args.stage2,
                        heads=args.heads.split(",") if args.heads else None,
@@ -177,7 +196,7 @@ def main(argv=None) -> int:
                        folds=([int(x) for x in args.folds.split(",")]
                               if args.folds else None))
     elif args.experiment == "formulas":
-        from src.experiments import formulas
+        from src.experiments.models import formulas
         formulas.run(
             cfg, pipe, variant=args.stage2 or "C",
             n_train=int(args.n_train.split(",")[-1]),
@@ -185,13 +204,13 @@ def main(argv=None) -> int:
                       if args.mediators else "emotion"),
             seed=int(str(args.seed).split(",")[0]) if args.seed else 0)
     elif args.experiment == "stage1_emotion_acc":
-        from src.experiments import stage1_emotion_acc
-        stage1_emotion_acc.run(cfg, pipe)
+            from src.experiments.models import stage1_emotion_acc
+            stage1_emotion_acc.run(cfg, pipe)  
     elif args.experiment == "stage2_emotion_importance":
-        from src.experiments import stage2_emotion_importance
+        from src.experiments.models import stage2_emotion_importance
         stage2_emotion_importance.run(cfg, pipe)
     elif args.experiment == "gt_formula_matched":
-        from src.experiments import gt_formula_matched
+        from src.experiments.models import gt_formula_matched
         gt_formula_matched.run(cfg, pipe, n_train=int(args.n_train.split(",")[-1]))
 
     return 0
