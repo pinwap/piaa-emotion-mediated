@@ -8,14 +8,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  
+from matplotlib.colors import LinearSegmentedColormap
+
 import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
 from src.utils.metrics import participant_cluster_bootstrap
 
+from src.data.data import DOMAIN_LABEL
+PANEL_LABEL = DOMAIN_LABEL | {"average": "Average"}
 FULL_WIDTH = 7.0
 COL_WIDTH = 3.3
 HEIGHT_2PANEL = 1.9
@@ -35,6 +38,7 @@ COLOR = {
     "ink": "#222222",     #text
     "ink_mid": "#555555",
     "ink_light": "#999999",    
+    "white": "#FFFFFF",
 }
 FONT = dict(title=8, legend=6, tick=6, xlabel=8, ylabel=8,
             annot=6, star=5.5, star_gap=0.6)
@@ -93,19 +97,32 @@ def save(fig, path: str | Path) -> Path:
 
 
 # --------holm significance
-def get_holm_sig(holm_df: pd.DataFrame | None, table: str, block: str, domain: str, contrast: str, metric: str="srocc")-> str: 
+def get_holm_sig(holm_df: pd.DataFrame | float | None, table: str | None = None, block: str|None = None, domain: str|None = None, contrast: str|None = None, metric: str|None ="srocc" )-> str: 
+    # input holm dataframe -> return significance star for the given table, block, domain, contrast, metric
+    # input p_holm float -> return significance star for the given p-value
+    
     if holm_df is None:
         return ""
-    row = holm_df[(holm_df.table == table) &(holm_df.block == block) & (holm_df.domain == domain) 
-                  & (holm_df.contrast == contrast) & (holm_df.metric == metric)]
-    if len(row) != 1:
-        print(f"Warning: {len(row)} Holm-corrected p-value found for {block}, {domain}, {contrast}, {metric}")
-        return ""
-    pval = float(row["p_holm"].iloc[0])
+    if isinstance(holm_df, pd.DataFrame):
+        row = holm_df[(holm_df.table == table) &(holm_df.block == block) & (holm_df.domain == domain) 
+                  & (holm_df.contrast == contrast) & (holm_df.metric == metric)]    
+        if len(row) != 1:
+            print(f"Warning: {len(row)} Holm-corrected p-value found for {block}, {domain}, {contrast}, {metric}")
+            return ""
+        pval = float(row["p_holm"].iloc[0])
+    else:
+        pval = float(holm_df)
     return "***" if pval < 0.001 else "**" if pval < 0.01 else "*" if pval < 0.05 else "n.s."
 
 
 # --- draw
+def sig_bracket(ax, x1: float, x2: float, y: float, text: str, h: float, star_gap: float, fontsize: float =5.5) -> None:
+    # line coordinate with h; height of the bracket, and significant sign on top
+    ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], color=COLOR["ink"], linewidth=0.6, clip_on=False, zorder=7)
+    va = "baseline" if '*' in text else "bottom"
+    ax.annotate(text, xy=((x1+x2)/2, y+h), xytext=(0, star_gap), textcoords="offset points", 
+                ha="center", va=va, fontsize=fontsize, zorder=8)
+    
 def bar_err(ax, x:float, values, color:str, width:float, err="sem",
             ids=None, label:str | None = None, hatch:str | None = None) -> float: #return top of error bar to 
     v = np.asanyarray(values, dtype=float)
@@ -161,9 +178,25 @@ def box(ax, x: float, values, color: str, width:float) -> None:
         zorder = 4,
     )
 
-def sig_bracket(ax, x1: float, x2: float, y: float, text: str, h: float, star_gap: float, fontsize: float =5.5) -> None:
-    # line coordinate with h; height of the bracket, and significant sign on top
-    ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], color=COLOR["ink"], linewidth=0.6, clip_on=False, zorder=7)
-    va = "baseline" if '*' in text else "bottom"
-    ax.annotate(text, xy=((x1+x2)/2, y+h), xytext=(0, star_gap), textcoords="offset points", 
-                ha="center", va=va, fontsize=fontsize, zorder=8)
+def heatmap(ax, data: pd.DataFrame, limit: float = 1.0, p_holm: pd.DataFrame | None = None):
+    color = LinearSegmentedColormap.from_list("amber_white_blue", [COLOR["amber"], COLOR["white"], COLOR["blue"]])
+    values = data.to_numpy(dtype=float)
+    
+    # paint the heatmap
+    images = ax.imshow(values, cmap=color, aspect="auto", vmin=-limit, vmax=limit)
+    for row, col in np.ndindex(values.shape):
+        value = values[row, col]
+        
+        # holm significance
+        star = "" if p_holm is None else get_holm_sig(holm_df=p_holm.iat[row, col])
+        star = "" if star == "n.s." else star
+        
+        ax.text(col, row, f"{value:+.2f}".replace("0.", ".") + star,
+                ha="center", va="center", fontsize=FONT["annot"]-1,
+                color= COLOR["white"] if abs(value)>0.6*limit else COLOR["ink"])
+    
+    ax.set_yticks(range(values.shape[0]), labels=data.index, fontsize=FONT["tick"])
+    ax.set_xticks(range(values.shape[1]), labels=data.columns, fontsize=FONT["tick"], ha="right", rotation=45)
+    ax.tick_params(length=0, pad=1)
+    for side in ax.spines.values(): side.set_visible(False) #remove the box around the heatmap
+    return images

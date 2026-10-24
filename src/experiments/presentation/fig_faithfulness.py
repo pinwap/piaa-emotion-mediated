@@ -27,13 +27,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from src.config import DATA_PATH, Config
-from src.data.data import DOMAINS, DOMAIN_LABEL
+from src.data.data import DOMAINS
 from src.utils.plots import *
 
 log = logging.getLogger(__name__)
 
 DOMAIN_KEYS = DOMAINS + ["average"]
-X_LABELS = [DOMAIN_LABEL[d] for d in DOMAINS] + ["Average"]
 GROUP_CENTERS = np.arange(len(DOMAIN_KEYS), dtype=float) # = 0 1 2 3
 BAR_YMIN = 0.28
 
@@ -175,7 +174,7 @@ def run(cfg, err: str = "sem", mode: str = "raincloud", show_sig: bool = True,
             ax.set_ylim(bottom=BAR_YMIN)
         grid(ax, axis="y")
         ax.tick_params(labelsize=FONT["tick"])
-    axes[-1].set_xticks(GROUP_CENTERS, X_LABELS)
+    axes[-1].set_xticks(GROUP_CENTERS, PANEL_LABEL.values())
     axes[-1].set_xlim(GROUP_CENTERS[0]-0.5, GROUP_CENTERS[-1]+0.5)       
     
     fig.supylabel("Spearman SROCC", fontsize=FONT["ylabel"])    
