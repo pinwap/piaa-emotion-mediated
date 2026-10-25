@@ -58,7 +58,8 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("experiment",
                     choices=["table1", "backbone", "efficiency", "faithfulness",
-                            "formulas", "formula_stability", "trait_correlation",
+                            "formulas", "formula_stability", "fig_formula_stability",
+                            "trait_correlation",
                             "stage1_emotion_acc",
                             "stage2_emotion_importance", "gt_formula_matched",
                             "fig_faithfulness",
@@ -162,6 +163,10 @@ def main(argv=None) -> int:
     elif args.experiment == "formula_stability":
         from src.experiments.analysis import formula_stability
         formula_stability.run(cfg)
+        return 0
+    elif args.experiment == "fig_formula_stability":
+        from src.experiments.analysis import formula_stability
+        formula_stability.plot_only(cfg)
         return 0
     elif args.experiment == "trait_correlation":
         from src.experiments.analysis import trait_correlation
