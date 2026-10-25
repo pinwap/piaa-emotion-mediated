@@ -102,6 +102,9 @@ def main(argv=None) -> int:
     ap.add_argument("--joint-concept-weight", type=float, default=None,
                     help="lambda in L=MSE(score) + lambda*MSE(concept), "
                          "as in Koh et al. (2020). Default 1.0.")
+    ap.add_argument("--subsets", action="store_true",
+                        help="formulas: instead of the paper's formulas, fit 3 disjoint 50-image "
+                             "subsets x 10 shuffles per unit -> subset_formulas.csv (Task 3)")
     args = ap.parse_args(argv)
 
     cfg = Config()
@@ -201,12 +204,15 @@ def main(argv=None) -> int:
                               if args.folds else None))
     elif args.experiment == "formulas":
         from src.experiments.models import formulas
-        formulas.run(
-            cfg, pipe, variant=args.stage2 or "C",
-            n_train=int(args.n_train.split(",")[-1]),
-            mediator=(args.mediators.split(",")[0]
-                      if args.mediators else "emotion"),
-            seed=int(str(args.seed).split(",")[0]) if args.seed else 0)
+        if args.subsets:
+            formulas.run_subset(cfg, pipe)
+        else:
+            formulas.run(
+                cfg, pipe, variant=args.stage2 or "C",
+                n_train=int(args.n_train.split(",")[-1]),
+                mediator=(args.mediators.split(",")[0]
+                          if args.mediators else "emotion"),
+                seed=int(str(args.seed).split(",")[0]) if args.seed else 0)
     elif args.experiment == "stage1_emotion_acc":
             from src.experiments.models import stage1_emotion_acc
             stage1_emotion_acc.run(cfg, pipe)  

@@ -28,7 +28,6 @@ w_total   w_pop + delta, the absolute personal mapping. This is literally the
 
 Outputs, all in output/formulas/:
 
-    population_formula.csv   per (fold, domain) - 15 rows: w_pop, b_pop, alpha
     user_formula.csv         per unit - 387 rows:
                                 delta, w_pop, w_total, bias, alpha, accuracy, and the support-set mean of z,
                                 which is what an ablation holds an emotion at
@@ -43,6 +42,7 @@ Outputs, all in output/formulas/:
 
 Usage:
     uv run main.py formulas --backbone qwen8b --stage2 C --n-train 100
+    uv run main.py formulas --subsets
 """
 from __future__ import annotations
 
@@ -55,14 +55,20 @@ from src.modeling.pipeline import _PopAnchoredRidge, _ResidualHead
 from src.utils.metrics import evaluate, plcc, srocc
 
 OUT = "formulas"
+N_SUBSET = 50
+SUBSETS = ["A", "B", "C"]
+N_PARTITIONS = 10
 
-
-def _fit_predict(head, M_tr, y_tr, M_ev, X_tr, X_ev, alpha):
+def _fit(head, M_tr, y_tr, X_tr, alpha):
     """One calling convention for the anchored and unanchored heads."""
     if isinstance(head, (_ResidualHead, _PopAnchoredRidge)):
-        head.fit(M_tr, y_tr, X_raw=X_tr, frozen_alpha=alpha)
+        return head.fit(M_tr, y_tr, X_raw=X_tr, frozen_alpha=alpha)
+    return head.fit(M_tr, y_tr, frozen_alpha=alpha)
+
+def _predict(head, M_ev, X_ev):
+    """Predict with a fitted personal head (anchored heads also need the raw features for y_pop)."""
+    if isinstance(head, (_ResidualHead, _PopAnchoredRidge)):
         return head.predict(M_ev, X_raw=X_ev)
-    head.fit(M_tr, y_tr, frozen_alpha=alpha)
     return head.predict(M_ev)
 
 def _intercept(head) -> float:
@@ -72,6 +78,29 @@ def _intercept(head) -> float:
     pipe = getattr(head, "_pipe", None)
     return float(pipe[-1].intercept_) if pipe is not None else float("nan")
 
+def population_context(cfg, pipeline, fold, dom: str, feats, n_train: int,
+                       mediator: str = "emotion", variant: str = "C", seed: int = 0) -> dict:
+    """Everything the test users of one (fold, domain) share:
+    GIAA (pop_ridge), Stage-1 (mediator_model), the Stage-2 anchor (scaler, w_pop, b_pop)
+    and the personal alpha for n_train images, selected on the validation users."""
+    
+    want = list(dict.fromkeys([mediator, "identity", "emotion", "pca",
+                                           "random", "shuffled"]))
+    Xg, Eg, yg, meds = pipeline.shared_context(fold, dom, feats, seed=seed, want=want)
+    med = meds[mediator]
+    Xv, _, yv = pipeline.val_data(fold, dom, feats) #tuning set, for alpha selection
+    pop_ridge = make_head("ridge", cfg).fit(Xg, yg, val=(Xv, yv))
+
+    anchor = None
+    if variant == "C" and mediator in set(cfg.stage2_variant_mediators):
+        anchor = pipeline.pop_anchor(med, Xg, yg, Xv, yv,
+                                        mediator_name=mediator)
+    
+    # --- select the personal alpha for this fold/domain/variant ------
+    alpha = pipeline.select_personal_hyperparam(
+        fold, dom, feats, med, "ridge", n_train, variant, anchor, pop_ridge,
+        mediator_name=mediator)
+    return {"mediator_model": med, "pop_ridge": pop_ridge, "anchor": anchor, "alpha": alpha}
 
 def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
         mediator: str = "emotion", seed: int = 0,
@@ -81,19 +110,14 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
     n = int(n_train or cfg.n_train)
     variant = variant or "plain"
 
-    pop_rows, unit_rows, gt_rows, image_rows, s1_rows = [], [], [], [], []
+    unit_rows, gt_rows, image_rows, s1_rows = [], [], [], []
 
     for fold in pipeline.split.folds():
         feats = pipeline.backbone.features_for_fold(fold.index)
         for dom in domains:
-            want = list(dict.fromkeys([mediator, "identity", "emotion", "pca",
-                                       "random", "shuffled"]))
-            Xg, Eg, yg, meds = pipeline.shared_context(fold, dom, feats,
-                                                       seed=seed, want=want)
-            med = meds[mediator]
-            Xv, _, yv = pipeline.val_data(fold, dom, feats) #tuning set, for alpha selection
-            pop_ridge = make_head("ridge", cfg).fit(Xg, yg, val=(Xv, yv))
-
+            context = population_context(cfg, pipeline, fold, dom, feats, n, mediator, variant, seed)
+            med, pop_ridge, anchor, alpha = context["mediator_model"], context["pop_ridge"], context["anchor"], context["alpha"]
+            
             # ---- Stage-1 accuracy, on the images the test users rated ------
             test_df = pipeline.ds.subset(domain=dom, users=fold.test_users)
             test_df = test_df[test_df["stimulus_id"].astype(str).isin(feats)]
@@ -109,33 +133,20 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
                                     "plcc": plcc(truth, P[:, j])})
 
             # ---- the population's own formula, in emotion space -------------
-            anchor = None
-            if variant == "C" and mediator in set(cfg.stage2_variant_mediators):
-                anchor = pipeline.pop_anchor(med, Xg, yg, Xv, yv,
-                                             mediator_name=mediator)
             scaler = anchor[0] if anchor is not None else None
             w_pop = (np.asarray(anchor[1], float).ravel() if anchor is not None
                      else np.full(len(CORE7), np.nan))
             b_pop = float(anchor[2]) if anchor is not None else float("nan")
-            pop_rows.append({
-                "fold": fold.index, "domain": dom, "backbone": cfg.backbone,
-                "variant": variant, "n_train": n, "seed": int(seed),
-                "b_pop": b_pop,
-                **{f"{e}_wpop": float(v) for e, v in zip(CORE7, w_pop)},
-            })
 
-            alpha = pipeline.select_personal_hyperparam(
-                fold, dom, feats, med, "ridge", n, variant, anchor, pop_ridge,
-                mediator_name=mediator)
-
+            # --- the personal formulas, one row per unit --------------------
             for unit in pipeline.iter_units(fold, dom, feats, n_train=n):
                 # extract the features for this unit's support set and evaluation set, and transform them into the mediator space
                 M_tr = med.transform(unit.X_train)
                 M_ev = med.transform(unit.X_eval)
                 
                 head = pipeline.make_personal("ridge", unit.user_id, variant, anchor, pop_ridge)
-                p = _fit_predict(head, M_tr, unit.y_train, M_ev,
-                                 unit.X_train, unit.X_eval, alpha)
+                _fit(head, M_tr, unit.y_train, unit.X_train, alpha)
+                p = _predict(head, M_ev, unit.X_eval)
                 p_pop = np.asarray(pop_ridge.predict(unit.X_eval), float).ravel()
 
                 w = np.asarray(head.weights(), float).ravel()
@@ -214,8 +225,7 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
 
     # ----------------------------------------------------------
     units = pd.DataFrame(unit_rows)
-    frames = {"population_formula.csv": pd.DataFrame(pop_rows),
-              "user_formula.csv": units,
+    frames = {"user_formula.csv": units,
               "user_formula_gt.csv": pd.DataFrame(gt_rows),
               "per_image.csv": pd.DataFrame(image_rows),
               "stage1_accuracy.csv": pd.DataFrame(s1_rows)}
@@ -225,3 +235,52 @@ def run(cfg, pipeline, variant: str = "C", n_train: int | None = None,
     counts = ", ".join(f"{name}={len(df):,}" for name, df in frames.items())
     print(f"[formulas] wrote {counts} to {out_dir}")
     return frames
+
+# ----------------------------------------------------------------------------------------------
+def run_subset(cfg, pipeline):
+    """All images each user rated in a domain are shuffled 10 times; each shuffle is cut into
+    3 disjoint subsets of 50 and one formula is fit per subset.
+    output/formulas/subset_formulas.csv: 387 units x 10 partitions x 3 subsets = 11,610 rows."""
+    
+    out_dir = cfg.run_dir(OUT)
+    rows = []
+    for fold in pipeline.split.folds():
+        feats = pipeline.backbone.features_for_fold(fold.index)
+        for dom in DOMAINS:
+            context = population_context(cfg, pipeline, fold, dom, feats, N_SUBSET)
+
+            domain_df = pipeline.ds.subset(domain=dom)
+            domain_df = domain_df[domain_df["stimulus_id"].astype(str).isin(feats)]
+            
+            for user_id in sorted(fold.test_users):
+                user_df = domain_df[domain_df["user_id"] == user_id]
+                per_image = pipeline.ds.per_stimulus(user_df)
+                stimuli = user_df["stimulus_id"].astype(str).unique()
+                
+                # all images this user rated in this domain
+                user_images = sorted(image for image in stimuli if image in per_image.index)
+                assert len(user_images) >= N_SUBSET * len(SUBSETS), f"user {user_id} {dom}: too few images"
+                
+                # reshuffle and partition to 3 disjoint subsets of 50
+                for partition in range(N_PARTITIONS):
+                    rng = np.random.RandomState(1000*partition + int(user_id))
+                    shuffled_images = list(rng.permutation(user_images))
+                    for index, subset in enumerate(SUBSETS):
+                        train_ids = shuffled_images[index * N_SUBSET:(index + 1) * N_SUBSET]
+                        
+                        X_train = pipeline.backbone.matrix(feats, train_ids)
+                        y_train = per_image.loc[train_ids, "overall"].to_numpy(float)
+                        head = pipeline.make_personal("ridge", user_id, "C", context["anchor"], context["pop_ridge"])
+                        
+                        _fit(head, context["mediator_model"].transform(X_train), y_train, X_train, context["alpha"])
+                        
+                        rows.append({"fold": fold.index, "domain": dom, "user_id": int(user_id),
+                                     "partition": partition, "subset": subset,
+                                     "n_images": len(shuffled_images), "alpha": float(context["alpha"]),
+                                     "bias": _intercept(head),
+                                     **{f"{e}_w": float(v) for e, v in zip(CORE7, np.asarray(head.weights(), float).ravel())}})
+            print(f"  fold {fold.index} {dom} done", flush=True)
+    subset_df = pd.DataFrame(rows)
+    subset_df.to_csv(out_dir / "subset_formulas.csv", index=False)
+    print(f"[formulas] wrote {len(subset_df):,} rows to {out_dir / 'subset_formulas.csv'}")
+    return subset_df
